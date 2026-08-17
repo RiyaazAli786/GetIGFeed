@@ -1,0 +1,51 @@
+{
+  "name": "getuserfeed",
+  "version": "1.0.0",
+  "description": "Node.js API to fetch an Instagram user feed together with the account's stories and highlights (converted from C# GetUserFeedAsync + InstagramStoryViewModel.SearchUserIDExecute).",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "node --test",
+    "anonyig:chunk": "node src/anonyig/chunk.js",
+    "fastdl:chunk": "node src/fastdl/chunk.js"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "src"
+    ],
+    "ext": "js,json",
+    "ignore": [
+      "data/*",
+      "data/**/*",
+      "*.log"
+    ]
+  },
+  "keywords": [
+    "instagram",
+    "feed",
+    "stories",
+    "highlights",
+    "api",
+    "express"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1092.0",
+    "archiver": "^7.0.1",
+    "axios": "^1.7.7",
+    "axios-cookiejar-support": "^5.0.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "http-cookie-agent": "^6.0.8",
+    "https-proxy-agent": "^7.0.5",
+    "morgan": "^1.10.0",
+    "tough-cookie": "^5.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}

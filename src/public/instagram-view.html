@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Instagram View · GetUserFeed</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    #instagram {
+      width: 100%;
+      height: 100vh;
+      display: none;
+    }
+    .loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0e1116;
+    }
+    .loading-content {
+      text-align: center;
+    }
+    .loader {
+      border: 4px solid #2a313c;
+      border-top: 4px solid #4c8bf5;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .loading-text {
+      color: #8b949e;
+      font-size: 16px;
+      margin: 10px 0;
+    }
+    .error-box {
+      background: #1e232c;
+      border: 1px solid #e5534b;
+      border-radius: 8px;
+      padding: 20px;
+      max-width: 500px;
+      margin: 20px auto;
+      color: #e6e9ee;
+    }
+    .error-title {
+      color: #e5534b;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .error-msg {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #8b949e;
+    }
+  </style>
+</head>
+<body>
+  <div class="loading" id="loading">
+    <div class="loading-content">
+      <div class="loader"></div>
+      <div class="loading-text">Loading Instagram...</div>
+      <div class="loading-text" style="font-size: 12px; color: #6b7280;">Please wait while we authenticate your session</div>
+    </div>
+  </div>
+
+  <div id="instagram"></div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      const params = new URLSearchParams(window.location.search);
+      const sessionId = params.get('sessionId');
+      const token = localStorage.getItem('admin_token');
+
+      if (!token) {
+        showError('Authentication Failed', 'No admin token found. Please go back to the admin panel and try again.');
+        return;
+      }
+
+      if (!sessionId) {
+        showError('Invalid Request', 'No session ID provided.');
+        return;
+      }
+
+      function showError(title, msg) {
+        const loading = document.getElementById('loading');
+        loading.innerHTML = `
+          <div class="error-box">
+            <div class="error-title">⚠ ${title}</div>
+            <div class="error-msg" style="white-space: pre-wrap;">${msg}</div>
+          </div>
+        `;
+      }
+
+      function updateLoading(text) {
+        const statusEl = document.querySelector('.loading-text');
+        if (statusEl) statusEl.textContent = text;
+      }
+
+      // First, check if the session is valid
+      updateLoading('Checking session validity...');
+      
+      fetch('/admin/instagram/check-session?sessionId=' + encodeURIComponent(sessionId), {
+        method: 'GET',
+        headers: {
+          'x-admin-token': token,
+        },
+      })
+        .then(r => r.json())
+        .then(d => {
+          console.log('[Session check response]', d);
+          
+          // Try to proceed if session is valid
+          if (d.sessionValid === true) {
+            // Session looks valid, proceed to load Instagram
+            updateLoading('Loading Instagram with session...');
+            
+            return fetch('/admin/instagram?sessionId=' + encodeURIComponent(sessionId), {
+              method: 'GET',
+              headers: {
+                'x-admin-token': token,
+              },
+            });
+          }
+          
+          // If we can't determine validity, still try to load but warn user
+          if (d.sessionValid === false) {
+            showError(
+              'Session May Be Expired',
+              'The session is not recognized by Instagram. Possible reasons:\n' +
+              '• The session has expired\n' +
+              '• The account logged out\n' +
+              '• Instagram requires re-authentication\n\n' +
+              'Try adding a fresh session from the admin panel.\n\n' +
+              'Debug: ' + (d.message || d.error || 'Unknown')
+            );
+            return Promise.reject(new Error('Session not valid'));
+          }
+          
+          // Fallback - still try to load
+          updateLoading('Loading Instagram with session...');
+          return fetch('/admin/instagram?sessionId=' + encodeURIComponent(sessionId), {
+            method: 'GET',
+            headers: {
+              'x-admin-token': token,
+            },
+          });
+        })
+        .then(r => {
+          if (!r.ok) {
+            return r.json().then(d => {
+              throw new Error(d.error || 'HTTP ' + r.status);
+            }).catch(e => {
+              throw new Error('HTTP ' + r.status + ': ' + (e.message || 'Failed to load'));
+            });
+          }
+          return r.text();
+        })
+        .then(html => {
+          document.getElementById('loading').style.display = 'none';
+          const ig = document.getElementById('instagram');
+          ig.innerHTML = html;
+          ig.style.display = 'block';
+        })
+        .catch(err => {
+          console.error('Error:', err);
+          if (err.message === 'Session not valid') {
+            return; // Already showing error
+          }
+          showError('Failed to Load Instagram', err.message);
+        });
+    })();
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,1521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Pool Admin · GetUserFeed</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #171b22; --panel-2: #1e232c; --border: #2a313c;
+    --text: #e6e9ee; --muted: #8b949e; --accent: #4c8bf5; --accent-d: #3b6fd4;
+    --danger: #e5534b; --danger-d: #c23c34; --ok: #3fb950; --warn: #d29922;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px;
+  }
+  button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border); }
+  input, textarea {
+    font: inherit; width: 100%; padding: 9px 11px; border-radius: 8px;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 74px; font-family: ui-monospace, "Cascadia Code", monospace; font-size: 13px; }
+  .btn { padding: 8px 14px; background: var(--panel-2); color: var(--text); }
+  .btn:hover { border-color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-d); }
+  .btn-danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: #fff; }
+  .btn-sm { padding: 5px 10px; font-size: 12.5px; }
+  .muted { color: var(--muted); }
+  .mono { font-family: ui-monospace, "Cascadia Code", monospace; }
+
+  /* Lock screen */
+  #lock {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(1200px 600px at 50% -10%, #1a2333, var(--bg)); z-index: 50;
+  }
+  .lock-card {
+    width: 340px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px 26px; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  .lock-card h1 { font-size: 18px; margin: 6px 0 4px; }
+  .lock-card p { margin: 0 0 18px; }
+  .lock-icon { font-size: 34px; }
+  #passcode { text-align: center; letter-spacing: 6px; font-size: 20px; margin: 6px 0 14px; }
+  .err { color: var(--danger); min-height: 18px; font-size: 13px; margin-top: 10px; }
+
+  /* App */
+  #app { display: none; max-width: 1080px; margin: 0 auto; padding: 20px 22px 60px; }
+  header.bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 18px; gap: 12px;
+  }
+  header.bar h1 { font-size: 17px; margin: 0; }
+  .bar-right { display: flex; align-items: center; gap: 14px; }
+  .lock-timer { font-variant-numeric: tabular-nums; font-size: 13px; }
+  .lock-timer b { color: var(--warn); }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .tab {
+    padding: 8px 16px; background: transparent; border: 1px solid transparent;
+    border-bottom: 2px solid transparent; color: var(--muted); border-radius: 8px 8px 0 0;
+  }
+  .tab.active { color: var(--text); border-color: var(--border); border-bottom-color: var(--accent); background: var(--panel); }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 18px; }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; }
+  .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .grow { flex: 1 1 240px; }
+  label.fld { display: block; }
+  label.fld > span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  td .mono { font-size: 12.5px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--border); }
+  .badge.ok { color: var(--ok); border-color: #235a2f; }
+  .badge.off { color: var(--muted); }
+  .actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .empty { text-align: center; color: var(--muted); padding: 26px; }
+  .count { color: var(--muted); font-weight: 400; font-size: 12.5px; }
+
+  /* Modal */
+  #modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; z-index: 40; }
+  .modal-card { width: 440px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; }
+  .modal-card h3 { margin: 0 0 14px; font-size: 15px; }
+  .modal-card .fld + .fld { margin-top: 12px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+  /* Toast */
+  #toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 60;
+    background: var(--panel-2); border: 1px solid var(--border); padding: 10px 18px; border-radius: 8px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  #toast.err { border-color: var(--danger); }
+  #toast.ok { border-color: var(--ok); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* Feed fetch */
+  details > summary { cursor: pointer; user-select: none; }
+  .pbar { height: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+  .pbar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #6aa8ff);
+    border-radius: 999px; transition: width .25s ease; }
+  .pbar-fill.err { background: var(--danger); }
+  .pbar-fill.ok { background: var(--ok); }
+  .feed-status { margin-top: 8px; font-size: 13px; display: flex; justify-content: space-between; }
+  .feed-status .el { font-variant-numeric: tabular-nums; }
+  .feed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+  .feed-cell { position: relative; aspect-ratio: 1/1; border-radius: 8px; overflow: hidden;
+    background: var(--panel-2); border: 1px solid var(--border); display: block; }
+  .feed-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .feed-cell .meta { position: absolute; left: 0; right: 0; bottom: 0; padding: 5px 7px; font-size: 11px;
+    background: linear-gradient(transparent, rgba(0,0,0,.75)); color: #fff; display: flex; gap: 10px; }
+  .feed-cell .vid { position: absolute; top: 6px; right: 7px; font-size: 12px; }
+  .feed-json { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    max-height: 340px; overflow: auto; font-family: ui-monospace, monospace; font-size: 12px; white-space: pre; }
+  .json-head { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 8px; }
+  .json-head span { font-size: 13px; }
+
+  /* Stories & highlights */
+  .chk { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+  .chk input { width: auto; padding: 0; }
+  .prof { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .prof img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover;
+    border: 1px solid var(--border); background: var(--panel-2); }
+  .prof h3 { margin: 0 0 4px; font-size: 15px; }
+  .prof .stats { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; margin: 6px 0; }
+  .prof .stats b { color: var(--text); }
+  .prof .bio { color: var(--muted); font-size: 12.5px; max-width: 62ch; white-space: pre-wrap; }
+  .prof a { color: var(--accent); }
+  .sec-head { display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; flex-wrap: wrap; margin: 18px 0 10px; }
+  .sec-head h3 { margin: 0; font-size: 13.5px; }
+  .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+  .media-cell { border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    background: var(--panel-2); display: flex; flex-direction: column; }
+  .media-cell .thumb { width: 100%; aspect-ratio: 9/16; object-fit: cover; display: block;
+    background: var(--panel-2); cursor: zoom-in; border: 0; padding: 0; }
+  .media-grid.sq .media-cell .thumb { aspect-ratio: 1/1; }
+  .media-cell .cap { padding: 6px 7px; font-size: 11.5px; color: var(--muted);
+    display: flex; flex-direction: column; gap: 5px; }
+  .media-cell .cap strong { color: var(--text); font-size: 12.5px; word-break: break-word; }
+  .media-cell .cap .row { gap: 6px; }
+  /* An expanded highlight: its bubble stays marked while its panel is open. */
+  .media-cell.open { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .hl-panel { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 4px; }
+  .badge.vid { color: var(--accent); border-color: var(--accent); }
+  .dl { display: inline-block; padding: 4px 9px; font-size: 12px; border-radius: 8px;
+    border: 1px solid var(--border); color: var(--text); text-decoration: none; }
+  .dl:hover { border-color: var(--accent); }
+  #viewer { border: 0; padding: 0; background: #000; border-radius: 10px; max-width: 94vw; max-height: 92vh; }
+  #viewer::backdrop { background: rgba(0,0,0,.75); }
+  #viewer img, #viewer video { max-width: 92vw; max-height: 88vh; display: block; }
+
+  /* Custom confirm dialog (replaces native confirm/alert) */
+  #confirm { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+    align-items: center; justify-content: center; z-index: 48; }
+  .confirm-card { width: 400px; max-width: calc(100vw - 32px); background: var(--panel);
+    border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; }
+  .confirm-card h3 { margin: 0 0 8px; font-size: 15px; }
+  .confirm-card p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+</style>
+</head>
+<body>
+
+<!-- ===== Lock screen ===== -->
+<div id="lock">
+  <div class="lock-card">
+    <div class="lock-icon">🔒</div>
+    <h1>Pool Admin</h1>
+    <p class="muted" id="lockSub">Enter passcode to unlock</p>
+    <input id="passcode" type="password" inputmode="numeric" autocomplete="off"
+           placeholder="••••" autofocus />
+    <button class="btn btn-primary" id="unlockBtn" style="width:100%">Unlock</button>
+    <div class="err" id="lockErr"></div>
+  </div>
+</div>
+
+<!-- ===== App ===== -->
+<div id="app">
+  <header class="bar">
+    <h1>🗂️ Session &amp; Proxy Pool</h1>
+    <div class="bar-right">
+      <span class="lock-timer muted">Auto-lock in <b id="countdown">30</b>s</span>
+      <button class="btn btn-sm" id="lockNow">Lock now</button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="sessions" id="tabSessions">Sessions</button>
+    <button class="tab" data-tab="proxies" id="tabProxies">Proxies</button>
+    <button class="tab" data-tab="feed" id="tabFeed">Fetch Feed</button>
+    <button class="tab" data-tab="stories" id="tabStories">Stories &amp; Highlights</button>
+  </div>
+
+  <!-- Sessions -->
+  <section id="view-sessions">
+    <div class="panel">
+      <h2>Add sessions <span class="count">(one per line — sessionid, cookie string, or JSON)</span></h2>
+      <label class="fld"><span>Sessions</span>
+        <textarea id="sess-add" placeholder="64827392%3AAbC...%3A17&#10;sessionid=...; csrftoken=...; ds_user_id=...; mid=..."></textarea>
+      </label>
+      <div class="row" style="margin-top:10px">
+        <label class="fld grow"><span>Label (optional, applied to all)</span>
+          <input id="sess-add-label" placeholder="e.g. batch-july" />
+        </label>
+        <button class="btn btn-primary" id="sess-add-btn">Add</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Stored sessions <span class="count" id="sess-count"></span>
+        <button class="btn btn-danger btn-sm" id="sess-clear" style="float:right">Clear all</button>
+      </h2>
+      <table>
+        <thead><tr><th>Label</th><th>ds_user_id</th><th>Session</th><th>Created</th><th></th></tr></thead>
+        <tbody id="sess-rows"></tbody>
+      </table>
+      <div class="empty" id="sess-empty" style="display:none">No sessions stored.</div>
+    </div>
+  </section>
+
+  <!-- Proxies -->
+  <section id="view-proxies" style="display:none">
+    <div class="panel">
+      <h2>Add proxies <span class="count">(one per line — ip:port, ip:port:user:pass, or user:pass@ip:port)</span></h2>
+      <label class="fld"><span>Proxies</span>
+        <textarea id="prox-add" placeholder="1.2.3.4:8080&#10;user:pass@1.2.3.4:8080"></textarea>
+      </label>
+      <div class="row" style="margin-top:10px">
+        <label class="fld grow"><span>Label (optional, applied to all)</span>
+          <input id="prox-add-label" placeholder="e.g. residential-us" />
+        </label>
+        <button class="btn btn-primary" id="prox-add-btn">Add</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Stored proxies <span class="count" id="prox-count"></span>
+        <button class="btn btn-danger btn-sm" id="prox-clear" style="float:right">Clear all</button>
+      </h2>
+      <table>
+        <thead><tr><th>Label</th><th>Host:Port</th><th>Auth</th><th>Created</th><th></th></tr></thead>
+        <tbody id="prox-rows"></tbody>
+      </table>
+      <div class="empty" id="prox-empty" style="display:none">No proxies stored.</div>
+    </div>
+  </section>
+
+  <!-- Fetch feed -->
+  <section id="view-feed" style="display:none">
+    <div class="panel">
+      <h2>Fetch a user feed <span class="count">(auth &amp; proxy come from the pool unless overridden)</span></h2>
+      <div class="row">
+        <label class="fld grow"><span>Instagram username or user ID</span>
+          <input id="feed-userid" placeholder="incindia  (or 7425066841)" autocapitalize="none" autocomplete="off" spellcheck="false" />
+        </label>
+        <button class="btn btn-primary" id="feed-btn">Fetch feed</button>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <label class="chk"><input type="checkbox" id="feed-stories" checked />
+          Also fetch stories &amp; highlights</label>
+        <label class="chk"><input type="checkbox" id="feed-hl-details" checked />
+          Expand highlight media</label>
+        <label class="fld" style="flex:0 0 170px"><span>Highlight limit (0 = all)</span>
+          <input id="feed-hl-limit" value="0" inputmode="numeric" />
+        </label>
+      </div>
+      <div class="hint">Stories and highlights are merged into the same JSON as
+        <span class="mono">stories</span>, <span class="mono">highlights</span> and
+        <span class="mono">highlight_details</span> nodes.</div>
+
+      <details style="margin-top:12px">
+        <summary class="muted">Advanced — override auth / proxy (optional)</summary>
+        <div style="margin-top:12px">
+          <label class="fld"><span>authToken / sessionid (blank → use a pooled session)</span>
+            <input id="feed-auth" placeholder="64827392%3AAbC...%3A17" />
+          </label>
+          <label class="fld" style="margin-top:10px"><span>proxy (blank → use a pooled proxy)</span>
+            <input id="feed-proxy" placeholder="ip:port:user:pass" />
+          </label>
+        </div>
+      </details>
+
+      <div id="feed-progress" style="display:none; margin-top:16px">
+        <div class="pbar"><div class="pbar-fill" id="feed-bar"></div></div>
+        <div class="feed-status">
+          <span id="feed-stage" class="muted">Starting…</span>
+          <span class="el muted"><b id="feed-elapsed">0.0</b>s</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="feed-result-panel" style="display:none">
+      <h2>Result <span class="count" id="feed-summary"></span></h2>
+      <div class="feed-grid" id="feed-grid"></div>
+      <div class="empty" id="feed-empty" style="display:none">No posts returned.</div>
+      <!-- Story / highlight nodes from the same response. -->
+      <div id="feed-stories-wrap"></div>
+      <div class="json-head">
+        <span class="muted">Converted JSON <span class="count" id="feed-json-size"></span></span>
+        <button class="btn btn-sm" id="feed-copy">📋 Copy JSON</button>
+      </div>
+      <pre class="feed-json" id="feed-json"></pre>
+    </div>
+  </section>
+
+  <!-- Stories & highlights -->
+  <section id="view-stories" style="display:none">
+    <div class="panel">
+      <h2>Fetch stories &amp; highlights
+        <span class="count">(third-party story sources — no session or proxy used)</span></h2>
+      <div class="row">
+        <label class="fld grow"><span>Instagram username or profile URL</span>
+          <input id="st-userid" placeholder="instagram  (or https://www.instagram.com/instagram/)"
+                 autocapitalize="none" autocomplete="off" spellcheck="false" />
+        </label>
+        <button class="btn btn-primary" id="st-btn">Fetch</button>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <label class="chk"><input type="checkbox" id="st-details" checked />
+          Expand highlight media</label>
+        <label class="fld" style="flex:0 0 170px"><span>Highlight limit (0 = all)</span>
+          <input id="st-limit" value="0" inputmode="numeric" />
+        </label>
+      </div>
+
+      <div id="st-progress" style="display:none; margin-top:16px">
+        <div class="pbar"><div class="pbar-fill" id="st-bar"></div></div>
+        <div class="feed-status">
+          <span id="st-stage" class="muted">Starting…</span>
+          <span class="el muted"><b id="st-elapsed">0.0</b>s</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="st-result-panel" style="display:none">
+      <h2>Result <span class="count" id="st-summary"></span></h2>
+      <div class="prof" id="st-profile"></div>
+      <div id="st-stories-wrap"></div>
+      <div class="json-head">
+        <span class="muted">Converted JSON <span class="count" id="st-json-size"></span></span>
+        <button class="btn btn-sm" id="st-copy">📋 Copy JSON</button>
+      </div>
+      <pre class="feed-json" id="st-json"></pre>
+    </div>
+  </section>
+</div>
+
+<!-- ===== Media viewer ===== -->
+<dialog id="viewer"><div id="viewer-body"></div></dialog>
+
+<!-- ===== Edit modal ===== -->
+<div id="modal">
+  <div class="modal-card">
+    <h3 id="modal-title">Edit</h3>
+    <div id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn" id="modal-cancel">Cancel</button>
+      <button class="btn btn-primary" id="modal-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Custom confirm dialog ===== -->
+<div id="confirm">
+  <div class="confirm-card">
+    <h3 id="confirm-title">Are you sure?</h3>
+    <p id="confirm-msg"></p>
+    <div class="confirm-actions">
+      <button class="btn" id="confirm-no">Cancel</button>
+      <button class="btn btn-danger" id="confirm-yes">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- State ----
+  var token = null;          // also stored in localStorage for cross-tab sharing
+  var idleMs = 30000;        // overwritten from /admin/status
+  var deadline = 0;          // epoch ms when auto-lock fires
+  var tickTimer = null;
+  var currentTab = 'sessions';
+
+  // Restore token from localStorage if available (for cross-tab access)
+  (function restoreToken() {
+    var stored = localStorage.getItem('admin_token');
+    if (stored) {
+      token = stored;
+      startIdleWatch();
+      $('lock').style.display = 'none';
+      $('app').style.display = 'block';
+      refreshAll();
+    }
+  })();
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ---- API helper ----
+  function api(method, path, body) {
+    resetIdle(); // an in-flight admin request counts as activity
+    var opts = { method: method, headers: {} };
+    if (token) opts.headers['x-admin-token'] = token;
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    return fetch('/admin' + path, opts).then(function (r) {
+      resetIdle();
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (r.status === 401 && token) { lock('Session expired.'); }
+        if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+        return data;
+      });
+    });
+  }
+
+  // Open API call — NO passcode token, never triggers the lock. Used for the
+  // feed fetch, which is not gated by the dashboard passcode. It still nudges
+  // the idle timer so reading results doesn't get you auto-locked mid-view.
+  function apiOpen(method, path, body) {
+    resetIdle();
+    var opts = { method: method, headers: {} };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    return fetch('/admin' + path, opts).then(function (r) {
+      resetIdle();
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+        return data;
+      });
+    });
+  }
+
+  // ---- Toast ----
+  var toastTimer = null;
+  function toast(msg, kind) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.className = 'show ' + (kind || '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.className = ''; }, 2600);
+  }
+
+  // ---- Auto-lock (30s inactivity) ----
+  function resetIdle() {
+    if (!token) return;
+    deadline = Date.now() + idleMs;
+  }
+  function tick() {
+    if (!token) return;
+    // A fetch in flight counts as activity: a story/feed lookup can outlast the
+    // idle window, and locking mid-request would throw away the result.
+    if (feedProgress.busy() || storyProgress.busy()) resetIdle();
+    var left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    var cd = $('countdown');
+    cd.textContent = left;
+    cd.style.color = left <= 10 ? 'var(--danger)' : '';
+    if (left <= 0) { lock('Auto-locked after inactivity.'); }
+  }
+  function startIdleWatch() {
+    resetIdle();
+    clearInterval(tickTimer);
+    tickTimer = setInterval(tick, 500);
+  }
+  // Any user interaction refreshes the window.
+  ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'].forEach(function (ev) {
+    window.addEventListener(ev, resetIdle, { passive: true });
+  });
+
+  // ---- Lock / unlock ----
+  function lock(reason) {
+    token = null;
+    localStorage.removeItem('admin_token');
+    clearInterval(tickTimer);
+    tickTimer = null;
+    $('app').style.display = 'none';
+    $('modal').style.display = 'none';
+    $('lock').style.display = 'flex';
+    $('passcode').value = '';
+    $('lockErr').textContent = reason || '';
+    $('passcode').focus();
+  }
+
+  function unlock() {
+    var pass = $('passcode').value;
+    if (!pass) { $('lockErr').textContent = 'Enter the passcode.'; return; }
+    $('unlockBtn').disabled = true;
+    fetch('/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passcode: pass })
+    }).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (res) {
+      $('unlockBtn').disabled = false;
+      if (!res.ok) { $('lockErr').textContent = res.d.error || 'Unlock failed.'; return; }
+      token = res.d.token;
+      localStorage.setItem('admin_token', token);
+      if (res.d.idleMs) idleMs = res.d.idleMs;
+      $('lock').style.display = 'none';
+      $('app').style.display = 'block';
+      startIdleWatch();
+      refreshAll();
+    }).catch(function () {
+      $('unlockBtn').disabled = false;
+      $('lockErr').textContent = 'Network error.';
+    });
+  }
+
+  // ---- Rendering ----
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString();
+  }
+
+  function renderSessions(list) {
+    $('sess-count').textContent = '· ' + list.length;
+    var tb = $('sess-rows'); tb.innerHTML = '';
+    $('sess-empty').style.display = list.length ? 'none' : 'block';
+    list.forEach(function (s) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + (s.label ? esc(s.label) : '<span class="muted">—</span>') + '</td>' +
+        '<td class="mono">' + esc(s.dsUserId || '—') + '</td>' +
+        '<td class="mono muted">' + esc(s.sessionidPreview || '') + '</td>' +
+        '<td class="muted">' + esc(fmtDate(s.createdAt)) + '</td>' +
+        '<td><div class="actions">' +
+          '<button class="btn btn-sm" data-view-sess="' + esc(s.id) + '">View</button>' +
+          '<button class="btn btn-sm" data-edit-sess="' + esc(s.id) + '">Edit</button>' +
+          '<button class="btn btn-danger btn-sm" data-del-sess="' + esc(s.id) + '">Delete</button>' +
+        '</div></td>';
+      tb.appendChild(tr);
+    });
+  }
+
+  function renderProxies(list) {
+    $('prox-count').textContent = '· ' + list.length;
+    var tb = $('prox-rows'); tb.innerHTML = '';
+    $('prox-empty').style.display = list.length ? 'none' : 'block';
+    list.forEach(function (p) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + (p.label ? esc(p.label) : '<span class="muted">—</span>') + '</td>' +
+        '<td class="mono">' + esc(p.host) + ':' + esc(p.port) + '</td>' +
+        '<td>' + (p.hasAuth ? '<span class="badge ok">auth</span>' : '<span class="badge off">none</span>') + '</td>' +
+        '<td class="muted">' + esc(fmtDate(p.createdAt)) + '</td>' +
+        '<td><div class="actions">' +
+          '<button class="btn btn-sm" data-check-prox="' + esc(p.id) + '">Check</button>' +
+          '<button class="btn btn-sm" data-edit-prox="' + esc(p.id) + '">Edit</button>' +
+          '<button class="btn btn-danger btn-sm" data-del-prox="' + esc(p.id) + '">Delete</button>' +
+        '</div></td>';
+      tb.appendChild(tr);
+    });
+  }
+
+  var sessionCache = [];
+  var proxyCache = [];
+
+  function loadSessions() {
+    return api('GET', '/sessions').then(function (d) {
+      sessionCache = d.sessions || [];
+      renderSessions(sessionCache);
+    });
+  }
+  function loadProxies() {
+    return api('GET', '/proxies').then(function (d) {
+      proxyCache = d.proxies || [];
+      renderProxies(proxyCache);
+    });
+  }
+  function refreshAll() {
+    loadSessions().catch(function (e) { toast(e.message, 'err'); });
+    loadProxies().catch(function (e) { toast(e.message, 'err'); });
+  }
+
+  // ---- Modal (edit) ----
+  var modalSave = null;
+  function openModal(title, bodyHtml, onSave) {
+    $('modal-title').textContent = title;
+    $('modal-body').innerHTML = bodyHtml;
+    modalSave = onSave;
+    $('modal').style.display = 'flex';
+  }
+  function closeModal() { $('modal').style.display = 'none'; modalSave = null; }
+
+  // ---- Custom confirm dialog (replaces native confirm/alert) ----
+  var confirmResolver = null;
+  function askConfirm(opts) {
+    opts = opts || {};
+    $('confirm-title').textContent = opts.title || 'Are you sure?';
+    $('confirm-msg').textContent = opts.message || '';
+    var yes = $('confirm-yes');
+    yes.textContent = opts.confirmLabel || 'Confirm';
+    yes.className = 'btn ' + (opts.danger === false ? 'btn-primary' : 'btn-danger');
+    $('confirm').style.display = 'flex';
+    yes.focus();
+    return new Promise(function (resolve) { confirmResolver = resolve; });
+  }
+  function closeConfirm(result) {
+    $('confirm').style.display = 'none';
+    var r = confirmResolver; confirmResolver = null;
+    if (r) r(Boolean(result));
+  }
+  $('confirm-no').addEventListener('click', function () { closeConfirm(false); });
+  $('confirm-yes').addEventListener('click', function () { closeConfirm(true); });
+  $('confirm').addEventListener('click', function (e) {
+    if (e.target === $('confirm')) closeConfirm(false); // backdrop click cancels
+  });
+  document.addEventListener('keydown', function (e) {
+    if ($('confirm').style.display !== 'flex') return;
+    if (e.key === 'Escape') closeConfirm(false);
+    else if (e.key === 'Enter') closeConfirm(true);
+  });
+
+  function editSession(id) {
+    var s = sessionCache.filter(function (x) { return x.id === id; })[0];
+    if (!s) return;
+    openModal('Edit session',
+      '<label class="fld"><span>Label</span><input id="m-label" value="' + esc(s.label || '') + '"></label>' +
+      '<label class="fld"><span>New sessionid / cookie string (leave blank to keep current)</span>' +
+      '<textarea id="m-secret" placeholder="Current: ' + esc(s.sessionidPreview || '') + '"></textarea></label>' +
+      '<div class="hint">Only fill the secret box to replace credentials — otherwise just the label is updated.</div>',
+      function () {
+        var body = { label: $('m-label').value };
+        var secret = $('m-secret').value.trim();
+        if (secret) body.sessionid = secret;
+        return api('PUT', '/sessions/' + id, body).then(function () {
+          toast('Session updated', 'ok'); closeModal(); loadSessions();
+        });
+      });
+  }
+
+  function editProxy(id) {
+    var p = proxyCache.filter(function (x) { return x.id === id; })[0];
+    if (!p) return;
+    openModal('Edit proxy',
+      '<label class="fld"><span>Label</span><input id="m-label" value="' + esc(p.label || '') + '"></label>' +
+      '<div class="row" style="margin-top:12px">' +
+        '<label class="fld grow"><span>Host</span><input id="m-host" value="' + esc(p.host) + '"></label>' +
+        '<label class="fld" style="flex:0 0 110px"><span>Port</span><input id="m-port" value="' + esc(p.port) + '"></label>' +
+      '</div>' +
+      '<div class="row" style="margin-top:12px">' +
+        '<label class="fld grow"><span>Username (optional)</span><input id="m-user" placeholder="' + (p.hasAuth ? 'set — leave blank to keep' : 'none') + '"></label>' +
+        '<label class="fld grow"><span>Password (optional)</span><input id="m-pass" type="password" placeholder="' + (p.hasAuth ? 'set — leave blank to keep' : 'none') + '"></label>' +
+      '</div>' +
+      '<div class="hint">Editing host/port re-saves credentials. Leave user/pass blank only if this proxy has no auth.</div>',
+      function () {
+        var host = $('m-host').value.trim();
+        var port = $('m-port').value.trim();
+        var body = { label: $('m-label').value };
+        if (host && port) {
+          body.host = host; body.port = port;
+          if ($('m-user').value) body.username = $('m-user').value;
+          if ($('m-pass').value) body.password = $('m-pass').value;
+        }
+        return api('PUT', '/proxies/' + id, body).then(function () {
+          toast('Proxy updated', 'ok'); closeModal(); loadProxies();
+        });
+      });
+  }
+
+  // ---- Wire up ----
+  $('unlockBtn').addEventListener('click', unlock);
+  $('passcode').addEventListener('keydown', function (e) { if (e.key === 'Enter') unlock(); });
+  $('lockNow').addEventListener('click', function () {
+    api('POST', '/logout').catch(function () {});
+    lock('Locked.');
+  });
+
+  // Tabs
+  var TABS = ['sessions', 'proxies', 'feed', 'stories'];
+  var TAB_BUTTONS = {
+    sessions: 'tabSessions', proxies: 'tabProxies', feed: 'tabFeed', stories: 'tabStories'
+  };
+  function selectTab(name) {
+    currentTab = name;
+    TABS.forEach(function (tab) {
+      $(TAB_BUTTONS[tab]).classList.toggle('active', tab === name);
+      $('view-' + tab).style.display = tab === name ? 'block' : 'none';
+    });
+  }
+  TABS.forEach(function (tab) {
+    $(TAB_BUTTONS[tab]).addEventListener('click', function () { selectTab(tab); });
+  });
+
+  // Add sessions
+  $('sess-add-btn').addEventListener('click', function () {
+    var raw = $('sess-add').value.trim();
+    if (!raw) { toast('Nothing to add', 'err'); return; }
+    var label = $('sess-add-label').value.trim();
+    var items = raw.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean)
+      .map(function (line) { return label ? { sessionid: line, label: label } : line; });
+    api('POST', '/sessions', { sessions: items }).then(function (d) {
+      toast('Added ' + d.added.length + ', skipped ' + d.skipped, 'ok');
+      $('sess-add').value = ''; $('sess-add-label').value = '';
+      loadSessions();
+    }).catch(function (e) { toast(e.message, 'err'); });
+  });
+
+  // Add proxies
+  $('prox-add-btn').addEventListener('click', function () {
+    var raw = $('prox-add').value.trim();
+    if (!raw) { toast('Nothing to add', 'err'); return; }
+    var label = $('prox-add-label').value.trim();
+    var items = raw.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean)
+      .map(function (line) { return label ? { url: line, host: line.split(':')[0], label: label } : line; });
+    // For labelled proxies we still send the raw string; parseProxyInput handles strings,
+    // so send strings and attach the label via object form only when supported.
+    if (label) {
+      items = raw.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean)
+        .map(function (line) { return parseProxyLine(line, label); });
+    }
+    api('POST', '/proxies', { proxies: items }).then(function (d) {
+      toast('Added ' + d.added.length + ', skipped ' + d.skipped, 'ok');
+      $('prox-add').value = ''; $('prox-add-label').value = '';
+      loadProxies();
+    }).catch(function (e) { toast(e.message, 'err'); });
+  });
+
+  // Turn a proxy line into an object carrying the label (server parses strings,
+  // but strings can't carry a label — so pre-split into fields here).
+  function parseProxyLine(line, label) {
+    var str = line.replace(/^https?:\/\//i, '');
+    var host = '', port = '', user = '', pass = '';
+    if (str.indexOf('@') !== -1) {
+      var a = str.split('@'); var creds = a[0].split(':'); var hp = a[1].split(':');
+      user = creds[0] || ''; pass = creds[1] || ''; host = hp[0] || ''; port = hp[1] || '';
+    } else {
+      var parts = str.split(':');
+      host = parts[0] || ''; port = parts[1] || ''; user = parts[2] || ''; pass = parts[3] || '';
+    }
+    var o = { host: host, port: port, label: label };
+    if (user) o.username = user;
+    if (pass) o.password = pass;
+    return o;
+  }
+
+  // Clear all
+  $('sess-clear').addEventListener('click', function () {
+    askConfirm({
+      title: 'Clear all sessions?',
+      message: 'This permanently deletes every stored session. This cannot be undone.',
+      confirmLabel: 'Delete all',
+    }).then(function (ok) {
+      if (!ok) return;
+      api('DELETE', '/sessions').then(function (d) {
+        toast('Cleared ' + d.removed + ' sessions', 'ok'); loadSessions();
+      }).catch(function (e) { toast(e.message, 'err'); });
+    });
+  });
+  $('prox-clear').addEventListener('click', function () {
+    askConfirm({
+      title: 'Clear all proxies?',
+      message: 'This permanently deletes every stored proxy. This cannot be undone.',
+      confirmLabel: 'Delete all',
+    }).then(function (ok) {
+      if (!ok) return;
+      api('DELETE', '/proxies').then(function (d) {
+        toast('Cleared ' + d.removed + ' proxies', 'ok'); loadProxies();
+      }).catch(function (e) { toast(e.message, 'err'); });
+    });
+  });
+
+  // Delegated row actions
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.dataset.viewSess) return window.open('/instagram-view.html?sessionId=' + encodeURIComponent(t.dataset.viewSess), '_blank');
+    if (t.dataset.editSess) return editSession(t.dataset.editSess);
+    if (t.dataset.editProx) return editProxy(t.dataset.editProx);
+    if (t.dataset.delSess) {
+      var sid = t.dataset.delSess;
+      askConfirm({ title: 'Delete session?', message: 'This session will be removed from the pool.', confirmLabel: 'Delete' })
+        .then(function (ok) {
+          if (!ok) return;
+          api('DELETE', '/sessions/' + sid).then(function () {
+            toast('Session deleted', 'ok'); loadSessions();
+          }).catch(function (err) { toast(err.message, 'err'); });
+        });
+    }
+    if (t.dataset.delProx) {
+      var pid = t.dataset.delProx;
+      askConfirm({ title: 'Delete proxy?', message: 'This proxy will be removed from the pool.', confirmLabel: 'Delete' })
+        .then(function (ok) {
+          if (!ok) return;
+          api('DELETE', '/proxies/' + pid).then(function () {
+            toast('Proxy deleted', 'ok'); loadProxies();
+          }).catch(function (err) { toast(err.message, 'err'); });
+        });
+    }
+    if (t.dataset.checkProx) {
+      checkProxy(t, t.dataset.checkProx);
+    }
+  });
+
+  // Test one proxy and reflect the result on its button + a toast.
+  function checkProxy(btn, id) {
+    if (btn.dataset.busy) return;
+    btn.dataset.busy = '1';
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+    btn.style.color = ''; btn.style.borderColor = '';
+    api('POST', '/proxies/' + id + '/check').then(function (d) {
+      var ipInfo = d.ip ? ' — exit IP ' + d.ip : '';
+      if (!d.ok) {
+        // Doesn't tunnel at all → dead.
+        btn.textContent = '✗ Dead';
+        btn.style.color = 'var(--danger)'; btn.style.borderColor = 'var(--danger)';
+        btn.title = 'Proxy unreachable: ' + (d.error || 'failed');
+        toast('Proxy dead: ' + (d.error || 'unreachable'), 'err');
+      } else if (d.igReachable) {
+        // Tunnels AND reaches Instagram → usable for feeds.
+        btn.textContent = '✓ ' + (d.ms != null ? d.ms + 'ms' : 'OK');
+        btn.style.color = 'var(--ok)'; btn.style.borderColor = 'var(--ok)';
+        btn.title = 'Working — reaches Instagram' + ipInfo;
+        toast('Proxy OK — Instagram reachable' + ipInfo, 'ok');
+      } else {
+        // Tunnels but Instagram blocks/resets → won't work for feeds.
+        btn.textContent = '⚠ IG blocked';
+        btn.style.color = 'var(--warn)'; btn.style.borderColor = 'var(--warn)';
+        btn.title = 'Proxy tunnels traffic' + ipInfo +
+          ', but Instagram blocked it: ' + (d.igError || 'reset') +
+          '. Datacenter IPs are usually blocked — use residential/mobile.';
+        toast('Proxy tunnels but Instagram blocked it (' + (d.igError || 'reset') +
+          ') — use residential/mobile', 'err');
+      }
+    }).catch(function (err) {
+      btn.textContent = '✗ Failed';
+      btn.style.color = 'var(--danger)'; btn.style.borderColor = 'var(--danger)';
+      toast(err.message, 'err');
+    }).then(function () {
+      btn.disabled = false;
+      delete btn.dataset.busy;
+    });
+  }
+
+  // ---- Indeterminate progress bar, shared by the feed and story fetches ----
+  // `stages` is a list of [tickCount, message]; tick = 200ms.
+  function makeProgress(prefix, stages) {
+    var timer = null, ticks = 0, busy = false;
+
+    return {
+      busy: function () { return busy; },
+      elapsed: function () { return $(prefix + '-elapsed').textContent; },
+      start: function () {
+        busy = true;
+        ticks = 0;
+        var bar = $(prefix + '-bar');
+        bar.className = 'pbar-fill';
+        bar.style.width = '8%';
+        $(prefix + '-progress').style.display = 'block';
+        $(prefix + '-result-panel').style.display = 'none';
+        $(prefix + '-stage').textContent = stages[0][1];
+        $(prefix + '-elapsed').textContent = '0.0';
+        var pct = 8;
+        clearInterval(timer);
+        timer = setInterval(function () {
+          ticks += 1;
+          $(prefix + '-elapsed').textContent = (ticks * 0.2).toFixed(1);
+          // Trickle toward 90% while the request is in flight (indeterminate).
+          pct += Math.max(0.4, (90 - pct) * 0.06);
+          if (pct > 90) pct = 90;
+          bar.style.width = pct + '%';
+          stages.forEach(function (stage) {
+            if (stage[0] === ticks) $(prefix + '-stage').textContent = stage[1];
+          });
+        }, 200);
+      },
+      end: function (kind, msg) {
+        clearInterval(timer);
+        busy = false;
+        var bar = $(prefix + '-bar');
+        bar.className = 'pbar-fill ' + (kind === 'ok' ? 'ok' : 'err');
+        bar.style.width = '100%';
+        $(prefix + '-stage').textContent = msg;
+      }
+    };
+  }
+
+  var feedProgress = makeProgress('feed', [
+    [0, 'Resolving account & proxy…'],
+    [3, 'Contacting Instagram…'],
+    [12, 'Still working — fetching posts…'],
+    [35, 'Fetching stories & highlights…']
+  ]);
+  var storyProgress = makeProgress('st', [
+    [0, 'Contacting the story sources…'],
+    [8, 'Reading stories & highlights…'],
+    [25, 'Still working — expanding highlight media…']
+  ]);
+
+  // ---- Stories & highlights rendering (shared by both tabs) ----
+  //
+  // Media is fetched through /api/instagram/media rather than straight from the
+  // CDN: the proxy adds the Referer/User-Agent those links expect, and the same
+  // url serves the download.
+  function mediaProxy(url, filename, inline) {
+    if (!url) return '';
+    return '/api/instagram/media?url=' + encodeURIComponent(url) +
+      (inline ? '&inline=1' : '&filename=' + encodeURIComponent(filename || 'download'));
+  }
+
+  // Mirrors the server's sanitizeFileName so a single download and its entry
+  // inside a zip end up with the same name.
+  var BAD_NAME_CHARS = ['<', '>', ':', '"', '/', String.fromCharCode(92), '|', '?', '*'];
+  function safeName(name) {
+    var out = String(name == null || name === '' ? 'instagram' : name).split('').map(function (c) {
+      return BAD_NAME_CHARS.indexOf(c) !== -1 || c.charCodeAt(0) < 32 ? '_' : c;
+    }).join('').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '');
+    return out || 'instagram';
+  }
+  function mediaExt(url, type) {
+    var m = /\.(jpe?g|png|webp|mp4|mov|gif)(?:$|\?)/i.exec(String(url || ''));
+    if (m) return m[1].toLowerCase();
+    return String(type || '').toLowerCase() === 'video' ? 'mp4' : 'jpg';
+  }
+  // Stories use storyUrl, highlight items mediaUrl; videos carry both.
+  function itemMediaUrl(item) { return item.videoUrl || item.storyUrl || item.mediaUrl || ''; }
+  function itemThumbUrl(item) { return item.storyUrl || item.mediaUrl || item.coverUrl || ''; }
+  function highlightTitle(h) { return h.title || h.id || 'Highlight'; }
+
+  function openViewer(url, isVideo) {
+    if (!url) return;
+    $('viewer-body').innerHTML = isVideo
+      ? '<video src="' + esc(mediaProxy(url, '', true)) + '" controls autoplay playsinline></video>'
+      : '<img src="' + esc(mediaProxy(url, '', true)) + '" alt="" />';
+    $('viewer').showModal();
+  }
+  $('viewer').addEventListener('click', function () {
+    $('viewer-body').innerHTML = '';
+    $('viewer').close();
+  });
+
+  /** One media tile: click the thumbnail to preview, the link to download. */
+  function mediaCell(opts) {
+    var cell = document.createElement('div');
+    cell.className = 'media-cell';
+
+    var thumb = document.createElement('img');
+    thumb.className = 'thumb';
+    thumb.loading = 'lazy';
+    thumb.alt = '';
+    if (opts.thumb) thumb.src = mediaProxy(opts.thumb, '', true);
+    thumb.onerror = function () { thumb.style.visibility = 'hidden'; };
+    thumb.onclick = function () { openViewer(opts.url || opts.thumb, opts.isVideo); };
+
+    // A highlight cover is neither image nor video content, so its cell asks for
+    // no type badge (badge: false).
+    var badge = opts.badge === false
+      ? ''
+      : opts.isVideo ? '<span class="badge vid">video</span>' : '<span class="badge">image</span>';
+
+    var cap = document.createElement('div');
+    cap.className = 'cap';
+    cap.innerHTML =
+      (opts.title ? '<strong>' + esc(opts.title) + '</strong>' : '') +
+      '<span>' + badge + (opts.meta ? (badge ? ' ' : '') + esc(opts.meta) : '') + '</span>';
+
+    var row = document.createElement('div');
+    row.className = 'row';
+    if (opts.url) {
+      var link = document.createElement('a');
+      link.className = 'dl';
+      link.href = mediaProxy(opts.url, opts.filename);
+      link.textContent = '⤓ Save';
+      row.appendChild(link);
+    }
+    (opts.buttons || []).forEach(function (b) { row.appendChild(b); });
+    cap.appendChild(row);
+
+    cell.appendChild(thumb);
+    cell.appendChild(cap);
+    return cell;
+  }
+
+  function sectionHead(title, count, source, buttons) {
+    var head = document.createElement('div');
+    head.className = 'sec-head';
+    head.innerHTML = '<h3>' + esc(title) + ' <span class="count">· ' + count +
+      (source ? ' · via ' + esc(source) : '') + '</span></h3>';
+    var row = document.createElement('div');
+    row.className = 'row';
+    (buttons || []).forEach(function (b) { row.appendChild(b); });
+    head.appendChild(row);
+    return head;
+  }
+
+  function note(text) {
+    var el = document.createElement('div');
+    el.className = 'empty';
+    el.textContent = text;
+    return el;
+  }
+
+  /**
+   * Why a list is empty. An upstream reason is shown verbatim (and flagged as a
+   * source failure) — claiming "this account has none" when a source was
+   * throttled would be wrong.
+   */
+  function emptyNote(error, nothingText) {
+    if (!error) return note(nothingText);
+    var el = note('Source unavailable — ' + error);
+    el.style.color = 'var(--warn)';
+    return el;
+  }
+
+  function smallButton(label, primary) {
+    var b = document.createElement('button');
+    b.className = 'btn btn-sm' + (primary ? ' btn-primary' : '');
+    b.textContent = label;
+    return b;
+  }
+
+  /**
+   * Build a zip of the given items server-side, following per-file progress over
+   * SSE on the button label, then hand the finished archive to the browser.
+   */
+  function zipDownload(button, username, items) {
+    if (!items.length) { toast('Nothing to download', 'err'); return Promise.resolve(); }
+    var label = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Starting…';
+
+    return fetch('/api/instagram/download/zip/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, items: items })
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok || !d.success) throw new Error(d.error || ('HTTP ' + r.status));
+        return d;
+      });
+    }).then(function (job) {
+      return new Promise(function (resolve, reject) {
+        var stream = new EventSource('/api/instagram/download/zip/' + job.jobId + '/events');
+        stream.onmessage = function (event) {
+          var update = JSON.parse(event.data);
+          var pct = update.total ? Math.round((update.completed / update.total) * 100) : 0;
+          button.textContent = update.status === 'packaging'
+            ? 'Packaging…'
+            : pct + '% (' + update.completed + '/' + update.total + ')';
+          if (update.status === 'ready') { stream.close(); resolve(update); }
+          if (update.status === 'error') { stream.close(); reject(new Error(update.error || 'Zip failed')); }
+        };
+        stream.onerror = function () { stream.close(); reject(new Error('Lost the progress stream')); };
+      });
+    }).then(function (job) {
+      button.textContent = 'Saving…';
+      // The job file is served with a Content-Disposition, so a plain link
+      // triggers the download without buffering the archive in memory.
+      var link = document.createElement('a');
+      link.href = '/api/instagram/download/zip/' + job.id + '/file';
+      link.download = job.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast('Saved ' + job.filename + (job.failed ? ' — ' + job.failed + ' failed' : ''), 'ok');
+    }).catch(function (err) {
+      toast(err.message, 'err');
+    }).then(function () {
+      button.disabled = false;
+      button.textContent = label;
+    });
+  }
+
+  function storyZipItems(items) {
+    return items.map(function (item) {
+      return { url: itemMediaUrl(item), type: item.type, kind: 'story' };
+    }).filter(function (i) { return i.url; });
+  }
+  function highlightZipItems(highlight, items) {
+    return items.map(function (item) {
+      return {
+        url: itemMediaUrl(item),
+        type: item.type,
+        kind: 'highlight',
+        highlightId: highlight.id,
+        highlightTitle: highlightTitle(highlight)
+      };
+    }).filter(function (i) { return i.url; });
+  }
+
+  /**
+   * Render the `stories` / `highlights` / `highlight_details` nodes of a
+   * response into `host`. Works for both the merged feed response and the
+   * stories tab, since both carry the same node shape.
+   *
+   * ctx: { username, userId } — needed to look a highlight up on demand.
+   */
+  function renderStoryBlocks(host, payload, ctx) {
+    host.innerHTML = '';
+    if (!payload || (!payload.stories && !payload.highlights)) return;
+
+    var stories = payload.stories || { items: [], count: 0 };
+    var highlights = payload.highlights || { items: [], count: 0 };
+    var details = payload.highlight_details || { items: {} };
+    // Pre-seed the cache with whatever the response already expanded. Its items
+    // node is keyed by highlight id, which is exactly the cache's own shape.
+    var cache = {};
+    var byId = details.items || {};
+    Object.keys(byId).forEach(function (id) { cache[id] = byId[id]; });
+
+    // --- stories ---
+    var storyItems = stories.items || [];
+    var storyZip = smallButton('⤓ Download all (zip)');
+    storyZip.disabled = !storyItems.length;
+    storyZip.onclick = function () {
+      zipDownload(storyZip, ctx.username, storyZipItems(storyItems));
+    };
+    host.appendChild(sectionHead('Stories', stories.count || storyItems.length, stories.source, [storyZip]));
+
+    if (!storyItems.length) {
+      host.appendChild(emptyNote(stories.error, 'No active stories for this account.'));
+    } else {
+      var storyGrid = document.createElement('div');
+      storyGrid.className = 'media-grid';
+      storyItems.forEach(function (story, index) {
+        var url = itemMediaUrl(story);
+        storyGrid.appendChild(mediaCell({
+          thumb: itemThumbUrl(story),
+          url: url,
+          isVideo: Boolean(story.isVideo),
+          meta: story.storyDate || story.createdAt || '',
+          filename: safeName(ctx.username) + '_Story_' + index + '.' + mediaExt(url, story.type)
+        }));
+      });
+      host.appendChild(storyGrid);
+    }
+
+    // --- highlights ---
+    var highlightItems = highlights.items || [];
+    host.appendChild(sectionHead('Highlights', highlights.count || highlightItems.length, highlights.source, []));
+
+    if (!highlightItems.length) {
+      host.appendChild(emptyNote(highlights.error, 'No highlights for this account.'));
+      return;
+    }
+
+    // Each opened highlight gets its OWN panel appended here, so opening a
+    // second one leaves the first expanded. Re-clicking toggles just that panel.
+    var itemsHost = document.createElement('div');
+    var panels = {};
+    var grid = document.createElement('div');
+    grid.className = 'media-grid sq';
+
+    highlightItems.forEach(function (highlight) {
+      var open = smallButton('Open');
+      var cell = mediaCell({
+        thumb: highlight.coverUrl,
+        badge: false,
+        title: highlightTitle(highlight),
+        meta: (function () {
+          var known = cache[highlight.id];
+          var count = known ? known.count : highlight.itemCount;
+          return count == null ? 'media not loaded' : count + ' item(s)';
+        })(),
+        buttons: [open]
+      });
+      var metaEl = cell.querySelector('.cap > span');
+
+      // Keeps the bubble, its button and its panel in one state.
+      var setOpen = function (isOpen) {
+        open.textContent = isOpen ? 'Hide' : 'Open';
+        cell.classList.toggle('open', isOpen);
+        if (panels[highlight.id]) {
+          panels[highlight.id].style.display = isOpen ? 'block' : 'none';
+        }
+      };
+
+      open.onclick = function () {
+        if (panels[highlight.id]) {
+          // Already loaded — just toggle this one, leaving the others alone.
+          var hidden = panels[highlight.id].style.display === 'none';
+          setOpen(hidden);
+          if (hidden) panels[highlight.id].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          return;
+        }
+        open.disabled = true;
+        open.textContent = 'Loading…';
+        loadHighlight(highlight, ctx, cache).then(function (detail) {
+          var panel = document.createElement('div');
+          panel.className = 'hl-panel';
+          panels[highlight.id] = panel;
+          itemsHost.appendChild(panel);
+          renderHighlightPanel(panel, highlight, detail, ctx, function () { setOpen(false); });
+          if (metaEl) metaEl.textContent = detail.count + ' item(s)';
+          setOpen(true);
+          panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }).catch(function (err) {
+          toast(err.message, 'err');
+          open.textContent = 'Open';
+        }).then(function () {
+          open.disabled = false;
+        });
+      };
+
+      grid.appendChild(cell);
+    });
+
+    host.appendChild(grid);
+    host.appendChild(itemsHost);
+  }
+
+  /** Highlight media: from the response when it was expanded, else on demand. */
+  function loadHighlight(highlight, ctx, cache) {
+    if (cache[highlight.id] && cache[highlight.id].items.length) {
+      return Promise.resolve(cache[highlight.id]);
+    }
+    var query = '?username=' + encodeURIComponent(ctx.username || '') +
+      '&userId=' + encodeURIComponent(ctx.userId || '');
+    return apiOpen('GET', '/highlight-details/' + encodeURIComponent(highlight.id) + query)
+      .then(function (d) {
+        var detail = {
+          id: highlight.id,
+          title: d.title || highlight.title || null,
+          source: d.source,
+          count: d.count,
+          error: d.reason || null,
+          items: d.items || []
+        };
+        cache[highlight.id] = detail;
+        return detail;
+      });
+  }
+
+  /**
+   * Render one highlight's media into its own panel. The panel is per-highlight
+   * and additive — several can be open at once — so this never touches anything
+   * outside `panel`.
+   *
+   * @param {function} onHide collapses the panel and resyncs its bubble button
+   */
+  function renderHighlightPanel(panel, highlight, detail, ctx, onHide) {
+    panel.innerHTML = '';
+    var folder = safeName(highlightTitle(highlight));
+    var items = detail.items || [];
+
+    var zip = smallButton('⤓ Download this highlight (zip)');
+    zip.disabled = !items.length;
+    zip.onclick = function () {
+      zipDownload(zip, ctx.username, highlightZipItems(highlight, items));
+    };
+    var hide = smallButton('✕ Hide');
+    hide.onclick = function () { onHide(); };
+
+    panel.appendChild(
+      sectionHead('“' + highlightTitle(highlight) + '”', items.length, detail.source, [zip, hide])
+    );
+
+    if (!items.length) {
+      panel.appendChild(emptyNote(detail.error, 'No media returned for this highlight.'));
+      return;
+    }
+    var grid = document.createElement('div');
+    grid.className = 'media-grid';
+    items.forEach(function (item, index) {
+      var url = itemMediaUrl(item);
+      grid.appendChild(mediaCell({
+        thumb: itemThumbUrl(item),
+        url: url,
+        isVideo: Boolean(item.isVideo),
+        meta: item.created || '',
+        filename: safeName(ctx.username) + '_' + folder + '_' + index + '.' + mediaExt(url, item.type)
+      }));
+    });
+    panel.appendChild(grid);
+  }
+
+  function renderFeed(data) {
+    $('feed-result-panel').style.display = 'block';
+    var user = (data.result && data.result.data && data.result.data.user) || {};
+    var edges = (user.edge_owner_to_timeline_media && user.edge_owner_to_timeline_media.edges) || [];
+    var stories = (data.result && data.result.stories) || null;
+    var highlights = (data.result && data.result.highlights) || null;
+    $('feed-summary').textContent =
+      '· ' + (data.username ? '@' + data.username + ' ' : '') +
+      edges.length + ' post' + (edges.length === 1 ? '' : 's') +
+      (stories ? ' · ' + stories.count + ' stor' + (stories.count === 1 ? 'y' : 'ies') : '') +
+      (highlights ? ' · ' + highlights.count + ' highlight' + (highlights.count === 1 ? '' : 's') : '');
+    $('feed-empty').style.display = edges.length ? 'none' : 'block';
+
+    var grid = $('feed-grid');
+    grid.innerHTML = '';
+    edges.forEach(function (e) {
+      var n = e.node || {};
+      var likes = (n.edge_liked_by && n.edge_liked_by.count) || 0;
+      var comments = (n.edge_media_to_comment && n.edge_media_to_comment.count) || 0;
+      var link = n.shortcode ? 'https://www.instagram.com/p/' + esc(n.shortcode) + '/' : '#';
+      var a = document.createElement('a');
+      a.className = 'feed-cell';
+      a.href = link; a.target = '_blank'; a.rel = 'noopener';
+      a.innerHTML =
+        (n.display_url ? '<img loading="lazy" src="' + esc(n.display_url) + '" onerror="this.style.display=\'none\'">' : '') +
+        (n.is_video ? '<span class="vid">▶</span>' : '') +
+        '<span class="meta">♥ ' + likes + '<span>💬 ' + comments + '</span></span>';
+      grid.appendChild(a);
+    });
+
+    // The story / highlight nodes merged into the same response.
+    renderStoryBlocks($('feed-stories-wrap'), data.result || {}, {
+      username: data.username || user.username || '',
+      userId: user.id || ''
+    });
+
+    setJson('feed', data.result);
+  }
+
+  /** Pretty-print a payload into a <pre> and label its size. */
+  function setJson(prefix, payload) {
+    var json = JSON.stringify(payload, null, 2);
+    $(prefix + '-json').textContent = json;
+    var kb = (json.length / 1024).toFixed(1);
+    $(prefix + '-json-size').textContent = '· ' + json.length.toLocaleString() + ' chars (' + kb + ' KB)';
+  }
+
+  // Copy the converted JSON to the clipboard, with a toast either way.
+  function copyJson(prefix) {
+    var text = $(prefix + '-json').textContent || '';
+    if (!text) { toast('Nothing to copy', 'err'); return; }
+    var done = function () { toast('Copied JSON to clipboard', 'ok'); };
+    var fail = function () {
+      // Fallback for non-secure contexts where navigator.clipboard is absent.
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        ok ? done() : toast('Copy failed — select and copy manually', 'err');
+      } catch (e) { toast('Copy failed — select and copy manually', 'err'); }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fail);
+    } else { fail(); }
+  }
+  $('feed-copy').addEventListener('click', function () { copyJson('feed'); });
+  $('st-copy').addEventListener('click', function () { copyJson('st'); });
+
+  function doFetchFeed() {
+    if (feedProgress.busy()) return;
+    var userId = $('feed-userid').value.trim();
+    if (!userId) { toast('Enter a username or user ID', 'err'); return; }
+    var body = { userId: userId };
+    var auth = $('feed-auth').value.trim();
+    var proxy = $('feed-proxy').value.trim();
+    if (auth) body.authToken = auth;
+    if (proxy) body.proxy = proxy;
+    // Stories/highlights ride along on the same response.
+    body.includeStories = $('feed-stories').checked;
+    body.includeHighlightDetails = $('feed-hl-details').checked;
+    body.highlightDetailLimit = parseInt($('feed-hl-limit').value, 10) || 0;
+
+    $('feed-btn').disabled = true;
+    feedProgress.start();
+    apiOpen('POST', '/user-feed', body).then(function (data) {
+      renderFeed(data);
+      // Fetch completed (got a response) — clear the user ID for the next lookup.
+      // Advanced auth/proxy overrides are kept so they can be reused.
+      $('feed-userid').value = '';
+      var extra = '';
+      if (data.result && data.result.stories) {
+        extra = ' · ' + data.storyCount + ' stories, ' + data.highlightCount + ' highlights';
+      }
+      if (data.ok) {
+        feedProgress.end('ok', 'Done — ' + data.count + ' post' + (data.count === 1 ? '' : 's') +
+          extra + ' in ' + feedProgress.elapsed() + 's');
+        toast('Fetched ' + data.count + ' posts' + extra, 'ok');
+      } else {
+        var why = data.reason || (data.result && data.result.error) ||
+          'no posts returned (proxy/session may be blocked)';
+        feedProgress.end('err', why);
+        toast(why, 'err');
+      }
+    }).catch(function (err) {
+      feedProgress.end('err', 'Failed: ' + err.message);
+      toast(err.message, 'err');
+    }).then(function () {
+      $('feed-btn').disabled = false;
+    });
+  }
+
+  $('feed-btn').addEventListener('click', doFetchFeed);
+  $('feed-userid').addEventListener('keydown', function (e) { if (e.key === 'Enter') doFetchFeed(); });
+
+  // ---- Fetch stories & highlights ----
+  function renderStoryProfile(profile, source) {
+    var host = $('st-profile');
+    host.innerHTML = '';
+    if (!profile) return;
+
+    var img = document.createElement('img');
+    img.alt = '';
+    if (profile.profilePic) img.src = mediaProxy(profile.profilePic, '', true);
+    img.onerror = function () { img.style.visibility = 'hidden'; };
+
+    var box = document.createElement('div');
+    box.style.flex = '1 1 300px';
+    box.innerHTML =
+      '<h3>' + esc(profile.fullName || profile.username || '') + '</h3>' +
+      '<div class="muted" style="font-size:12.5px">' +
+        '<a href="' + esc(profile.profileUrl || '#') + '" target="_blank" rel="noopener">@' +
+        esc(profile.username || '') + '</a>' +
+        (profile.isPrivate ? ' <span class="badge">private</span>' : '') +
+        (source ? ' <span class="badge ok">via ' + esc(source) + '</span>' : '') +
+      '</div>' +
+      '<div class="stats">' +
+        '<span><b>' + Number(profile.postCount || 0).toLocaleString() + '</b> posts</span>' +
+        '<span><b>' + Number(profile.followerCount || 0).toLocaleString() + '</b> followers</span>' +
+        '<span><b>' + Number(profile.followingCount || 0).toLocaleString() + '</b> following</span>' +
+      '</div>' +
+      '<div class="bio">' + esc(profile.biography && profile.biography !== 'N/A' ? profile.biography : '') + '</div>';
+
+    var actions = document.createElement('div');
+    actions.className = 'row';
+    actions.style.marginTop = '10px';
+    if (profile.profilePic) {
+      var pic = document.createElement('a');
+      pic.className = 'dl';
+      pic.href = mediaProxy(profile.profilePic,
+        safeName(profile.username) + '.' + mediaExt(profile.profilePic, 'image'));
+      pic.textContent = '⤓ Profile picture';
+      actions.appendChild(pic);
+    }
+    box.appendChild(actions);
+
+    host.appendChild(img);
+    host.appendChild(box);
+  }
+
+  function doFetchStories() {
+    if (storyProgress.busy()) return;
+    var username = $('st-userid').value.trim();
+    if (!username) { toast('Enter a username or profile URL', 'err'); return; }
+    var body = {
+      username: username,
+      includeHighlightDetails: $('st-details').checked,
+      highlightDetailLimit: parseInt($('st-limit').value, 10) || 0
+    };
+
+    $('st-btn').disabled = true;
+    storyProgress.start();
+    apiOpen('POST', '/story-highlight', body).then(function (data) {
+      $('st-result-panel').style.display = 'block';
+      var result = data.result || {};
+      renderStoryProfile(result.profile, data.source);
+      renderStoryBlocks($('st-stories-wrap'), result, {
+        username: data.username || (result.profile && result.profile.username) || username,
+        userId: (result.profile && result.profile.id) || ''
+      });
+      setJson('st', result);
+      $('st-summary').textContent = '· @' + (data.username || username) + ' ' +
+        data.storyCount + ' stor' + (data.storyCount === 1 ? 'y' : 'ies') + ', ' +
+        data.highlightCount + ' highlight' + (data.highlightCount === 1 ? '' : 's') +
+        (data.truncated ? ' (details capped)' : '');
+
+      if (data.ok) {
+        storyProgress.end('ok', 'Done in ' + storyProgress.elapsed() + 's — ' +
+          data.storyCount + ' stories, ' + data.highlightCount + ' highlights');
+        toast('Fetched ' + data.storyCount + ' stories, ' + data.highlightCount + ' highlights', 'ok');
+      } else {
+        var why = data.reason || 'No stories or highlights available for this account.';
+        storyProgress.end('err', why);
+        toast(why, 'err');
+      }
+    }).catch(function (err) {
+      storyProgress.end('err', 'Failed: ' + err.message);
+      toast(err.message, 'err');
+    }).then(function () {
+      $('st-btn').disabled = false;
+    });
+  }
+
+  $('st-btn').addEventListener('click', doFetchStories);
+  $('st-userid').addEventListener('keydown', function (e) { if (e.key === 'Enter') doFetchStories(); });
+
+  // Modal buttons
+  $('modal-cancel').addEventListener('click', closeModal);
+  $('modal-save').addEventListener('click', function () {
+    if (!modalSave) return;
+    $('modal-save').disabled = true;
+    Promise.resolve(modalSave()).catch(function (e) { toast(e.message, 'err'); })
+      .then(function () { $('modal-save').disabled = false; });
+  });
+
+  // ---- Boot ----
+  fetch('/admin/status').then(function (r) { return r.json(); }).then(function (d) {
+    if (d.idleMs) idleMs = d.idleMs;
+    if (!d.configured) {
+      $('lockSub').textContent = 'Dashboard disabled';
+      $('passcode').style.display = 'none';
+      $('unlockBtn').style.display = 'none';
+      $('lockErr').textContent = 'Set ADMIN_PASSCODE in the server environment to enable.';
+    }
+  }).catch(function () {});
+
+})();
+</script>
+</body>
+</html>

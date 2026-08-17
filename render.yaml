@@ -1,0 +1,146 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# Deploy: push this repo to GitHub, then in Render click
+#   New +  →  Blueprint  →  pick this repo.
+# Render reads this file and provisions the service below.
+#
+# DATA PERSISTENCE
+# ----------------
+# The encrypted session/proxy pool is stored in Backblaze B2 (the B2_* vars
+# below), so it survives restarts and redeploys WITHOUT a paid persistent disk.
+# This lets the whole thing run on the FREE plan (no credit card required).
+# csrf tokens and feed logs go to the local filesystem, which is ephemeral on
+# free instances — that's fine, they're regenerated on demand.
+#
+# Want production-grade performance (no cold starts, always on)? Change
+# `plan: free` to `plan: starter` — but that requires a card on file.
+
+services:
+  - type: web
+    name: getuserfeed
+    runtime: node
+    plan: free               # no card required; sleeps after ~15 min idle, cold-starts on next request
+    region: oregon           # pick the region closest to you (oregon | frankfurt | singapore | ohio | virginia)
+    branch: main
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # AES-256-GCM key for the pool. Generated once by Render and kept stable
+      # across deploys. Do NOT change it later or existing secrets become
+      # undecryptable (you'd have to clear and re-add the pool).
+      - key: ENCRYPTION_KEY
+        generateValue: true
+
+      # Admin dashboard passcode (required to unlock /admin).
+      # sync:false → Render prompts you to enter it in the dashboard; it is
+      # never stored in this repo. Leave unset to disable the dashboard.
+      - key: ADMIN_PASSCODE
+        sync: false
+
+      # Auto-lock the dashboard after this many ms of inactivity.
+      - key: ADMIN_IDLE_MS
+        value: "30000"
+
+      # --- Backblaze B2 storage for the encrypted pool ------------------------
+      # Persists the pool across restarts/redeploys (no disk needed). The secret
+      # key values use sync:false — enter them in the Render dashboard.
+      - key: B2_BUCKET
+        value: igservice
+      - key: B2_POOL_KEY
+        value: pool.json
+      # The anonyig signing chunk lives in the same bucket. anonyig.com answers
+      # HTTP 451 to hosts it refuses (Render's egress is one), so an instance
+      # cannot always download it — it reads this mirrored copy instead. Publish
+      # it once with `npm run anonyig:chunk` from a machine that can reach the
+      # site, using these same B2 credentials.
+      - key: B2_ANONYIG_CHUNK_KEY
+        value: anonyig/live_link_chunk.js
+      - key: B2_FASTDL_CHUNK_KEY
+        value: fastdl/live_link_chunk.js
+      - key: B2_ENDPOINT
+        value: https://s3.us-east-005.backblazeb2.com
+      - key: B2_REGION
+        value: us-east-005
+      - key: B2_KEY_ID
+        sync: false
+      - key: B2_APPLICATION_KEY
+        sync: false
+
+      # Feed tuning (optional; defaults shown).
+      - key: FEED_PAGE_COUNT
+        value: "12"
+      - key: CSRF_MAX_USES
+        value: "10"
+
+      # --- Stories & highlights ----------------------------------------------
+      # Fetched from third-party story viewers (no session/proxy), merged into
+      # the feed response as the stories / highlights / highlight_details nodes.
+      # Every highlight is expanded by default (LIMIT 0). That is one upstream
+      # call per highlight, so set a positive limit if an account with dozens of
+      # highlights would push the response past your host's request timeout.
+      - key: FEED_INCLUDE_STORIES
+        value: "true"
+      - key: FEED_INCLUDE_HIGHLIGHT_DETAILS
+        value: "true"
+      - key: FEED_HIGHLIGHT_DETAIL_LIMIT
+        value: "0"
+      - key: FEED_HIGHLIGHT_DETAIL_CONCURRENCY
+        value: "5"
+      - key: STORY_REQUEST_TIMEOUT_MS
+        value: "30000"
+      # anonstories rate-limits hard and is the only highlight source for some
+      # accounts: space its calls out and cache what comes back.
+      - key: STORY_ANON_MIN_INTERVAL_MS
+        value: "900"
+      - key: STORY_ANON_CACHE_TTL_MS
+        value: "60000"
+      - key: STORY_RETRY_DELAY_MS
+        value: "3000"
+
+      # --- anonyig (/api/anonyig/*) ------------------------------------------
+      # User details, posts, reels, stories and highlights from the anonyig
+      # worker hub, and /api/anonyig/feed — all of it in the converted feed JSON.
+      # No session, no proxy and no build step: the signing chunk it needs is
+      # downloaded into DATA_DIR on the first request and refetched by itself
+      # whenever the site redeploys and invalidates the stored copy. On the free
+      # plan that directory is ephemeral, so the download simply repeats after a
+      # cold start (~1 s, once per instance) — nothing to provision.
+      - key: ANONYIG_TIMEOUT_MS
+        value: "20000"
+      - key: ANONYIG_CONCURRENCY
+        value: "4"
+      - key: ANONYIG_USER_CACHE_TTL_MS
+        value: "300000"
+      # ?pages= on /posts, /reels and /feed: ~12 posts per page, one upstream
+      # call each. The ceiling bounds what a caller can ask for in one request.
+      - key: ANONYIG_DEFAULT_PAGES
+        value: "1"
+      - key: ANONYIG_MAX_PAGES
+        value: "10"
+      # The hub answers 422 CAPTCHA_REQUIRED to addresses it distrusts, and
+      # Render's egress — like every datacenter range — is one of them. So the
+      # hub traffic has to leave through a residential/mobile proxy. Either set
+      # ANONYIG_PROXY in the dashboard (sync:false, it carries credentials), or
+      # flip ANONYIG_USE_POOL_PROXY to "true" to draw one from the pool you
+      # manage in /admin. GET /api/anonyig/status reports which is in effect.
+      - key: ANONYIG_PROXY
+        sync: false
+      - key: ANONYIG_USE_POOL_PROXY
+        value: "false"
+
+      # --- fastdl (/api/fastdl/*) --------------------------------------------
+      # User details, posts, stories and highlights from the FastDL worker hub.
+      # Inherits from ANONYIG variables as fallback.
+      - key: FASTDL_TIMEOUT_MS
+        value: "20000"
+      - key: FASTDL_PROXY
+        sync: false
+      - key: FASTDL_USE_POOL_PROXY
+        value: "false"
+
