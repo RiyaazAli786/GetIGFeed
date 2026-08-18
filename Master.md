@@ -1085,8 +1085,8 @@ All error responses follow the shape `{ "success": false, "error": "<message>" }
 
 | Variable | Default | Description |
 |---|---|---|
-| `FASTDL_PROXY` | (falls back to `ANONYIG_PROXY`) | Proxy for fastdl upstream |
-| `FASTDL_USE_POOL_PROXY` | (falls back to `ANONYIG_USE_POOL_PROXY`) | Use pool proxy for fastdl |
+| `FASTDL_PROXY` | — | `host:port:user:pass` proxy for fastdl upstream |
+| `FASTDL_USE_POOL_PROXY` | `false` | Use a random pool proxy for fastdl |
 | `FASTDL_TIMEOUT_MS` | (falls back to `ANONYIG_TIMEOUT_MS`) | Request timeout |
 
 ### B2 / Chunk storage

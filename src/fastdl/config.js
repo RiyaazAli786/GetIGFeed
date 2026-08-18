@@ -23,7 +23,7 @@ module.exports = {
       'live_link_chunk.js'
     ),
 
-  // Proxy settings (inheriting from anonyig defaults if not explicitly set)
-  proxy: process.env.FASTDL_PROXY || process.env.ANONYIG_PROXY || null,
-  usePoolProxy: process.env.FASTDL_USE_POOL_PROXY === 'true' || process.env.ANONYIG_USE_POOL_PROXY === 'true',
+  // Proxy settings
+  proxy: process.env.FASTDL_PROXY || null,
+  usePoolProxy: process.env.FASTDL_USE_POOL_PROXY === 'true',
 };
