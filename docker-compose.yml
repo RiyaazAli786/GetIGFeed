@@ -1,0 +1,17 @@
+services:
+  getigfeed:
+    build: .
+    image: getigfeed:latest
+    container_name: getigfeed
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PORT=3000
+    # Bound to localhost only — the host's reverse proxy (nginx + certbot)
+    # terminates TLS on 80/443 and forwards to this port. Not exposed publicly
+    # by itself, so it can't collide with other containers' published ports.
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./data:/app/data
