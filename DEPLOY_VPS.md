@@ -1,41 +1,46 @@
-# Deploying to a Docker VPS (app.reelsflow.io)
+# Deploying to the Docker VPS (feed.reelsflow.io)
 
-This is the companion to [DEPLOY.md](DEPLOY.md) (which covers Render) for a
-self-managed VPS that already runs Docker. It uses:
+This is the companion to [DEPLOY.md](DEPLOY.md) (which covers Render) for the
+self-managed VPS at `200.234.41.82`. It uses:
 
 - [`Dockerfile`](Dockerfile) — builds the API image (Node 20 Alpine).
 - [`docker-compose.yml`](docker-compose.yml) — runs the container, bound to
   `127.0.0.1:3000` only.
-- [`deploy/nginx-app.reelsflow.io.conf`](deploy/nginx-app.reelsflow.io.conf) —
+- [`deploy/nginx-feed.reelsflow.io.conf`](deploy/nginx-feed.reelsflow.io.conf) —
   host-nginx reverse proxy + TLS termination for the domain.
+- [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) — CI/CD:
+  every push to `main` rebuilds and restarts the container on the VPS.
 
-DNS for `app.reelsflow.io` already resolves to the VPS, so no DNS step is
-needed — start at Step 0.
+## Server state (as found)
 
-Run everything below **on the VPS**, over your own SSH session
-(`ssh root@200.234.41.82`) — this was prepared without direct access to that
-server, so paste these commands into your own terminal.
+The VPS (`srv1922103`, Ubuntu 24.04, Docker 29.7.2 / Compose v5.5.0) already
+runs an unrelated stack: `social-shorts-frontend` (5173), `-backend` (4000),
+`-worker`, Postgres (5433), Redis (6379) — all left untouched by this deploy.
+Host nginx (not containerized) is already running and terminates TLS for
+existing sites via certbot.
+
+**`app.reelsflow.io` is already in use** — its nginx config proxies to
+`social-shorts-frontend:5173` with a valid cert. GetIGFeed is deployed on a
+**separate subdomain, `feed.reelsflow.io`**, on container port `3000`, so it
+cannot collide with that app.
+
+### DNS — action needed once
+
+`reelsflow.io`'s root domain resolves elsewhere and `feed.reelsflow.io` does
+not resolve yet. Add an **A record**: `feed` → `200.234.41.82`, at whatever
+provider manages `reelsflow.io`'s DNS, before running the certbot step below
+(HTTP works immediately after Step 5; TLS needs DNS to have propagated).
 
 ## Step 0 — check what's already on ports 80/443
 
-The box already runs other Docker workloads, so confirm nothing else is
-bound to the ports this deploy needs before proceeding:
+Already confirmed on this box: nginx owns 80/443 directly (not in Docker),
+and port 3000 is free. Re-check before re-running this if the server has
+changed:
 
 ```bash
 docker ps
 sudo ss -tlnp | grep -E ':80|:443|:3000'
 ```
-
-- **Nothing listening on 80/443** → follow this doc as written (host nginx +
-  certbot).
-- **A reverse-proxy container is already there** (`nginx-proxy`, Traefik,
-  Caddy, etc.) → skip Step 4/5 below and instead attach `getigfeed` to that
-  proxy's Docker network and add its label/env-var convention for the host
-  `app.reelsflow.io` pointing at container port `3000`. Say which proxy it is
-  if you want exact config for it.
-- **Port 3000 already used by something else** → change the port mapping in
-  `docker-compose.yml` (both sides of `ports:`) and in the nginx conf's
-  `proxy_pass`.
 
 ## Step 1 — get the code onto the server
 
@@ -43,8 +48,6 @@ sudo ss -tlnp | grep -E ':80|:443|:3000'
 mkdir -p /opt/getigfeed && cd /opt/getigfeed
 git clone https://github.com/RiyaazAli786/GetIGFeed.git .
 ```
-
-(Re-deploys later: `cd /opt/getigfeed && git pull` then re-run Step 3's build.)
 
 ## Step 2 — configure environment
 
@@ -69,8 +72,8 @@ ADMIN_PASSCODE=<pick a passcode to unlock /admin>
 ```
 
 Everything else in `.env.example` has a working default — see the table at
-the bottom of [DEPLOY.md](DEPLOY.md) for what each one does. Two notes that
-carry over from Render because this VPS is also a datacenter host:
+the bottom of [DEPLOY.md](DEPLOY.md) for what each one does. Two notes carry
+over from Render because this VPS is also a datacenter host:
 
 - `/api/anonyig/*` needs the signing chunk published to B2 once from a
   machine that can reach anonyig.com (skip if you don't use this route) —
@@ -97,20 +100,26 @@ curl -s http://127.0.0.1:3000/health
 
 Expect `{"status":"ok"}`.
 
-## Step 4 — install nginx + certbot (skip if Step 0 found a proxy already)
+## Step 4 — install certbot (nginx is already installed on this box)
 
 ```bash
 sudo apt update
-sudo apt install -y nginx certbot python3-certbot-nginx
+sudo apt install -y certbot python3-certbot-nginx
 ```
 
 ## Step 5 — reverse proxy + TLS
 
 ```bash
-sudo cp deploy/nginx-app.reelsflow.io.conf /etc/nginx/sites-available/app.reelsflow.io
-sudo ln -s /etc/nginx/sites-available/app.reelsflow.io /etc/nginx/sites-enabled/
+sudo cp deploy/nginx-feed.reelsflow.io.conf /etc/nginx/sites-available/feed.reelsflow.io
+sudo ln -s /etc/nginx/sites-available/feed.reelsflow.io /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d app.reelsflow.io
+```
+
+At this point `http://feed.reelsflow.io/health` should work once its DNS
+record resolves. Then get the cert (needs DNS to have propagated):
+
+```bash
+sudo certbot --nginx -d feed.reelsflow.io
 ```
 
 Certbot rewrites the config in place to add the 443 server block and sets up
@@ -120,17 +129,48 @@ auto-renewal (`certbot renew` via systemd timer/cron — check with
 ## Step 6 — verify
 
 ```bash
-curl -s https://app.reelsflow.io/health
-curl -s https://app.reelsflow.io/api/anonyig/user/nasa
-curl -s https://app.reelsflow.io/api/anonyig/feed/nasa
+curl -s https://feed.reelsflow.io/health
+curl -s https://feed.reelsflow.io/api/anonyig/user/nasa
+curl -s https://feed.reelsflow.io/api/anonyig/feed/nasa
 ```
 
-Then open `https://app.reelsflow.io/admin` in a browser, enter the
+Then open `https://feed.reelsflow.io/admin` in a browser, enter the
 `ADMIN_PASSCODE` from Step 2, and add sessions/proxies as needed.
+
+## CI/CD — auto-deploy on push to `main`
+
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) SSHes into the
+VPS on every push to `main` and runs `git reset --hard origin/main &&
+docker compose up -d --build`. It authenticates as a dedicated low-privilege
+`deploy` user (not root), created for this purpose:
+
+```bash
+# on the VPS, one-time setup
+sudo useradd -m -s /bin/bash deploy
+sudo usermod -aG docker deploy
+sudo mkdir -p /home/deploy/.ssh
+echo '<contents of getigfeed_deploy.pub>' | sudo tee /home/deploy/.ssh/authorized_keys
+sudo chmod 700 /home/deploy/.ssh && sudo chmod 600 /home/deploy/.ssh/authorized_keys
+sudo chown -R deploy:deploy /home/deploy/.ssh
+sudo chown -R deploy:deploy /opt/getigfeed
+```
+
+In the GitHub repo → **Settings → Secrets and variables → Actions**, add:
+
+| Secret | Value |
+| --- | --- |
+| `DEPLOY_HOST` | `200.234.41.82` |
+| `DEPLOY_USER` | `deploy` |
+| `DEPLOY_SSH_KEY` | the deploy keypair's **private** key (`getigfeed_deploy`, no passphrase) |
+
+The `deploy` user only needs `docker` group membership (to build/run
+containers) and ownership of `/opt/getigfeed` — it does not touch nginx, so
+the one-time DNS/certbot steps above stay manual. Root's password is not
+used by CI/CD at all.
 
 ## Active URL list
 
-Base URL: **`https://app.reelsflow.io`**
+Base URL: **`https://feed.reelsflow.io`**
 
 | Endpoint | Notes |
 | --- | --- |
@@ -168,6 +208,8 @@ behind an IP allowlist or basic auth at the nginx layer if this box is
 publicly reachable long-term.
 
 ## Redeploying after a code change
+
+Automatic: push to `main` and the CI/CD workflow above handles it. Manually:
 
 ```bash
 cd /opt/getigfeed
