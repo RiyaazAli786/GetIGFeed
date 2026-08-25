@@ -60,6 +60,10 @@ async function postUserFeed(req, res, next) {
       includeStoryHighlights,
       includeHighlightDetails,
       highlightDetailLimit,
+      fresh,
+      bypassCache,
+      useCache,
+      cache,
     } = src;
     const feedMaxId = maxId ?? max_id ?? null;
 
@@ -94,6 +98,27 @@ async function postUserFeed(req, res, next) {
       });
     }
 
+    const { feedCache, MemoryCache } = require('../utils/cache');
+    const isBypass = String(fresh || bypassCache).toLowerCase() === 'true' || fresh === true || bypassCache === true;
+    const isCacheRequested = (String(useCache || cache).toLowerCase() === 'true' || useCache === true || cache === true) && String(cache).toLowerCase() !== 'false';
+    const allowCache = isCacheRequested && !isBypass && !feedMaxId;
+
+    const cacheKey = MemoryCache.makeKey('userFeed', {
+      userId,
+      maxId: feedMaxId,
+      includeStories,
+      includeHighlightDetails,
+      highlightDetailLimit,
+    });
+
+    if (allowCache) {
+      const cached = feedCache.get(cacheKey);
+      if (cached) {
+        res.setHeader('X-Cache', 'HIT');
+        return res.status(200).json(cached);
+      }
+    }
+
     // getUserFeed → resolveAccount() fills any still-missing cookies/proxy
     // from the encrypted pool.
     const result = await getUserFeed(account, userId, {
@@ -111,6 +136,11 @@ async function postUserFeed(req, res, next) {
     // Success = at least one post in the web_profile_info edges.
     const edges = result?.data?.user?.edge_owner_to_timeline_media?.edges || [];
     const ok = edges.length > 0;
+
+    if (ok && !feedMaxId) {
+      feedCache.set(cacheKey, result);
+      res.setHeader('X-Cache', 'MISS');
+    }
 
     // Log every call to its own JSON file (no secrets — only whether they
     // were supplied and where auth was sourced from).

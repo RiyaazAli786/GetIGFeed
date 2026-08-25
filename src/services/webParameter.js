@@ -86,10 +86,22 @@ function getWebParameter(dominatorAccount, mobileRequest = false) {
         : '';
     httpsAgent = new HttpsProxyCookieAgent(
       `http://${auth}${proxy.proxyIp}:${proxy.proxyPort}`,
-      { cookies: { jar } }
+      {
+        keepAlive: true,
+        keepAliveMsecs: 30000,
+        maxSockets: 100,
+        maxFreeSockets: 20,
+        cookies: { jar },
+      }
     );
   } else {
-    httpsAgent = new HttpsCookieAgent({ cookies: { jar } });
+    httpsAgent = new HttpsCookieAgent({
+      keepAlive: true,
+      keepAliveMsecs: 30000,
+      maxSockets: 100,
+      maxFreeSockets: 20,
+      cookies: { jar },
+    });
   }
 
   // The cookie agent handles the jar (UseCookies = true).
