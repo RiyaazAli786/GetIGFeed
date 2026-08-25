@@ -90,23 +90,11 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     // Bearer IGT:2:base64({ds_user_id, sessionid}) built from the session.
     if (param.authorization) headers['Authorization'] = param.authorization;
 
-    profile = await fetchUserProfileDetails(param.client, inputUser, headers);
-    const feedUserId =
-      numericPk(profile?.pk_id, profile?.pk, profile?.id, inputUser) ||
-      (inputHandle ? await resolveUsernamePk(inputHandle) : null) ||
-      inputUser;
     const feedTarget = inputHandle
       ? `${encodeURIComponent(inputHandle)}/username`
-      : encodeURIComponent(feedUserId);
+      : encodeURIComponent(inputUser);
     const endpoint = `/api/v1/feed/user/${feedTarget}/?count=${PAGE_COUNT}${maxParam}`;
     const response = await param.client.get(endpoint, { headers });
-
-    // Print the real JSON returned by Instagram.
-    // eslint-disable-next-line no-console
-    console.log(
-      `[getUserFeed] IG response (HTTP ${response.status}) for ${endpoint}:\n` +
-        JSON.stringify(response.data, null, 2)
-    );
 
     // EnsureSuccessStatusCode equivalent.
     if (response.status < 200 || response.status >= 300) {
@@ -121,35 +109,12 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     nextMaxId = data.next_max_id ?? null;
 
     // Profile fields (follower/following counts, HD avatar) that the feed
-    // response may carry at the top level. feed/user usually omits the counts,
-    // so fall back to the user info endpoint when they are missing.
-    profile = mergeProfiles(data.user, posts[0]?.user, profile);
+    // response carries at the top level.
+    profile = mergeProfiles(data.user, posts[0]?.user);
     if (!hasProfileCounts(profile)) {
-      // Resolve both identifiers from whatever the feed gave us: `userId` may
-      // itself be a username (the feed endpoint takes either), and the two
-      // profile endpoints each need a different one.
-      const isNumericId = /^\d+$/.test(inputUser);
-      const owner = posts[0]?.user;
-      // pk_id first: it is the string form, so it survives JSON.parse intact
-      // even for pks beyond 2^53. Anything non-numeric is rejected — the info
-      // endpoint 404s on a username.
-      const pk = numericPk(
-        profile?.pk_id,
-        profile?.pk,
-        owner?.pk_id,
-        owner?.pk,
-        isNumericId ? inputUser : null
-      );
-      const username = profile?.username ?? owner?.username ?? (isNumericId ? null : inputUser);
-
-      const info = await fetchUserProfileDetails(param.client, username || pk, headers);
-      if (info) profile = mergeProfiles(profile, info);
-      else {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[getUserFeed] no profile source returned follow counts for ${username || pk}`
-        );
-      }
+      // Profile details missing counts -> fetch details as fallback
+      const fetchedDetails = await fetchUserProfileDetails(param.client, inputUser, headers);
+      if (fetchedDetails) profile = mergeProfiles(profile, fetchedDetails);
     }
 
     // Empty response with a non-2xx or an IG error message → note why.

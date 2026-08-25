@@ -172,23 +172,31 @@ async function fetchMedia(instaUsername) {
     return result;
   };
 
-  const userInfo = await snPost(sn.userProfile, jsonBody);
-
-  // Secondary profile source - failures here must not abort the request.
+  // Parallelize userProfile fetch from storynavigation and secondary ASMN source with a strict 2s timeout
+  let userInfo = '';
   let userInfoResponse = '';
-  try {
-    const asmn = config.theAsmn;
-    const asmnParams = await fetcher.getParam(asmn.baseUrl, asmn.cookies);
-    userInfoResponse = await fetcher.hitRequest(
-      asmn.userApi,
-      asmnParams,
-      JSON.stringify({ username }),
-      asmn.origin,
-      asmn.referer
-    );
-  } catch {
-    userInfoResponse = '';
-  }
+
+  const fetchAsmn = async () => {
+    try {
+      const asmn = config.theAsmn;
+      const asmnParams = await fetcher.getParam(asmn.baseUrl, asmn.cookies);
+      return await fetcher.hitRequest(
+        asmn.userApi,
+        asmnParams,
+        JSON.stringify({ username }),
+        asmn.origin,
+        asmn.referer,
+        { timeoutMs: 2000 }
+      );
+    } catch {
+      return '';
+    }
+  };
+
+  [userInfo, userInfoResponse] = await Promise.all([
+    snPost(sn.userProfile, jsonBody),
+    fetchAsmn(),
+  ]);
 
   // The C# reads these two straight out of the raw JSON text and interpolates
   // them into the next body, so the same values are reused verbatim here.
@@ -201,9 +209,14 @@ async function fetchMedia(instaUsername) {
   const userBody =
     `{"userName":"${username}","isPrivate":${isPrivate === 'true' ? 'true' : 'false'},` +
     `"instagramUserId":${userIdLiteral}}`;
+  const highlightBody = `{"userName":"${username}","userId":${userIdLiteral}}`;
 
-  // --- stories: storynavigation, then anonstories -------------------------
-  const snStories = await snPost(sn.lastStories, userBody);
+  // --- stories & highlights: fetch both from storynavigation concurrently in parallel -----------------
+  const [snStories, snHighlights] = await Promise.all([
+    snPost(sn.lastStories, userBody),
+    snPost(sn.userHighlights, highlightBody),
+  ]);
+
   const snStoryCount = parseStoryItems(snStories).length;
   let anonStories = null;
   let anonStoryStatus;
@@ -220,11 +233,6 @@ async function fetchMedia(instaUsername) {
     { name: 'anonstories', text: anonStories, count: anonStoryCount, status: anonStoryStatus },
   ]);
 
-  // --- highlights: same two sources, decided independently -----------------
-  // The highlight list has its own fallback because storynavigation frequently
-  // serves stories but answers `[]` for highlights (and vice versa).
-  const highlightBody = `{"userName":"${username}","userId":${userIdLiteral}}`;
-  const snHighlights = await snPost(sn.userHighlights, highlightBody);
   const snHighlightCount = parseHighlights(snHighlights).length;
   let anonHighlights = null;
   let anonHighlightStatus;
