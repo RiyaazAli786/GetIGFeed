@@ -11,6 +11,7 @@ const crypto = require('crypto');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const FEED_DIR = path.join(DATA_DIR, 'feeds');
+const FEED_LOG_ENABLED = String(process.env.FEED_LOG_ENABLED || 'true').toLowerCase() !== 'false';
 
 function ensureDir() {
   if (!fs.existsSync(FEED_DIR)) fs.mkdirSync(FEED_DIR, { recursive: true });
@@ -30,6 +31,8 @@ const safeStamp = (iso) => iso.replace(/[:.]/g, '-');
  * @returns {string|null} the file path written, or null on failure
  */
 function logFeed({ userId, result }) {
+  if (!FEED_LOG_ENABLED) return null;
+
   try {
     ensureDir();
     const loggedAt = new Date().toISOString();
@@ -50,4 +53,12 @@ function logFeed({ userId, result }) {
   }
 }
 
-module.exports = { logFeed, FEED_DIR };
+function logFeedAsync(args) {
+  if (!FEED_LOG_ENABLED) return;
+
+  setImmediate(() => {
+    logFeed(args);
+  });
+}
+
+module.exports = { logFeed, logFeedAsync, FEED_DIR };

@@ -2,7 +2,10 @@
 
 const { getUserFeed } = require('../services/instagram.service');
 const poolStore = require('../store/poolStore');
-const { logFeed } = require('../store/feedLog');
+const { logFeedAsync } = require('../store/feedLog');
+
+const FEED_CACHE_DEFAULT =
+  String(process.env.FEED_CACHE_DEFAULT || 'false').toLowerCase() === 'true';
 
 /**
  * POST /api/user-feed
@@ -100,8 +103,17 @@ async function postUserFeed(req, res, next) {
 
     const { feedCache, MemoryCache } = require('../utils/cache');
     const isBypass = String(fresh || bypassCache).toLowerCase() === 'true' || fresh === true || bypassCache === true;
-    const isCacheRequested = (String(useCache || cache).toLowerCase() === 'true' || useCache === true || cache === true) && String(cache).toLowerCase() !== 'false';
-    const allowCache = isCacheRequested && !isBypass && !feedMaxId;
+    const isCacheDisabled =
+      String(useCache).toLowerCase() === 'false' ||
+      String(cache).toLowerCase() === 'false' ||
+      useCache === false ||
+      cache === false;
+    const isCacheRequested =
+      FEED_CACHE_DEFAULT ||
+      String(useCache || cache).toLowerCase() === 'true' ||
+      useCache === true ||
+      cache === true;
+    const allowCache = isCacheRequested && !isCacheDisabled && !isBypass && !feedMaxId;
 
     const cacheKey = MemoryCache.makeKey('userFeed', {
       userId,
@@ -144,7 +156,7 @@ async function postUserFeed(req, res, next) {
 
     // Log every call to its own JSON file (no secrets — only whether they
     // were supplied and where auth was sourced from).
-    logFeed({
+    logFeedAsync({
       userId,
       request: {
         maxId: feedMaxId,
