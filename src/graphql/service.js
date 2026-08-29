@@ -202,7 +202,13 @@ async function fetchFromGraphQL(username, opts = {}) {
   const edges = Array.isArray(timeline.edges) ? timeline.edges : [];
   const pageInfo = timeline.page_info || {};
 
-  return {
+const {
+  resolveStoryOptions,
+  fetchStoryBundle,
+  attachStoryNodes,
+} = require('../services/feedStoryMerge');
+
+  const response = {
     success: true,
     source: 'graphql',
     userId,
@@ -227,6 +233,14 @@ async function fetchFromGraphQL(username, opts = {}) {
     },
     status: gqlData?.status || 'ok',
   };
+
+  const storyOptions = resolveStoryOptions(opts);
+  if (storyOptions.enabled) {
+    const bundle = await fetchStoryBundle(handle, storyOptions);
+    attachStoryNodes(response, bundle, storyOptions);
+  }
+
+  return response;
 }
 
 module.exports = {

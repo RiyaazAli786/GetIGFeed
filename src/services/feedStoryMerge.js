@@ -37,10 +37,13 @@ function int(value, fallback) {
  */
 function resolveStoryOptions(opts = {}) {
   const defaults = storyConfig.feed;
-  const enabled = flag(
-    opts.includeStories ?? opts.includeStoryHighlights ?? opts.stories,
-    defaults.includeStories
-  );
+  const rawValue =
+    opts.includeStories ??
+    opts.include_stories ??
+    opts.includeStoriesAndHighlights ??
+    opts.includeStoryHighlights ??
+    opts.stories;
+  const enabled = flag(rawValue, defaults.includeStories);
   return {
     enabled,
     includeHighlightDetails: flag(

@@ -148,6 +148,7 @@ const getConvertedFeed = (handle, opts = {}) => {
   return run((ig) =>
     buildConvertedFeed(ig, username, {
       pages,
+      includeStories: Boolean(opts.includeStories),
       includeHighlightDetails: opts.includeHighlightDetails !== false,
       // 0 (the default) expands every bubble.
       highlightDetailLimit: Number.isNaN(limit) ? 0 : Math.max(0, limit),

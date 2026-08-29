@@ -25,7 +25,14 @@ async function searchUserId(req, res, next) {
   try {
     const src = { ...(req.params || {}), ...(req.query || {}), ...(req.body || {}) };
     const username = src.username || src.instaUsername || src.userId;
-    const withDetails = flag(src.includeHighlightDetails ?? src.highlightDetails, true);
+    const withDetails = flag(
+      src.includeHighlightDetails ??
+      src.highlightDetails ??
+      src.includeStories ??
+      src.include_stories ??
+      src.stories,
+      true
+    );
 
     if (!withDetails) {
       const result = await service.searchUserId(username);

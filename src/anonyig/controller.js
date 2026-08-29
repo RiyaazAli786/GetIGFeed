@@ -159,8 +159,16 @@ async function profile(req, res, next) {
 async function convertedFeed(req, res, next) {
   try {
     const src = { ...(req.query || {}), ...(req.body || {}) };
+    const includeStoriesRaw =
+      src.includeStories ??
+      src.include_stories ??
+      src.includeStoriesAndHighlights ??
+      src.includeStoryHighlights ??
+      src.stories;
+    const includeStories = flag(includeStoriesRaw, false);
     const result = await service.getConvertedFeed(handleFrom(req), {
       pages: src.pages,
+      includeStories,
       includeHighlightDetails: flag(src.includeHighlightDetails ?? src.highlightDetails, true),
       highlightDetailLimit: src.highlightDetailLimit,
     });

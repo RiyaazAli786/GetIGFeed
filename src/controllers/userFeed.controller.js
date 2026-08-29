@@ -60,7 +60,10 @@ async function postUserFeed(req, res, next) {
       minTimestamp = null,
       isNewBrowser = false,
       includeStories,
+      include_stories,
+      includeStoriesAndHighlights,
       includeStoryHighlights,
+      stories,
       includeHighlightDetails,
       highlightDetailLimit,
       fresh,
@@ -69,6 +72,12 @@ async function postUserFeed(req, res, next) {
       cache,
     } = src;
     const feedMaxId = maxId ?? max_id ?? null;
+    const resolvedIncludeStories =
+      includeStories ??
+      include_stories ??
+      includeStoriesAndHighlights ??
+      includeStoryHighlights ??
+      stories;
 
     if (!userId) {
       return res
@@ -118,7 +127,7 @@ async function postUserFeed(req, res, next) {
     const cacheKey = MemoryCache.makeKey('userFeed', {
       userId,
       maxId: feedMaxId,
-      includeStories,
+      includeStories: resolvedIncludeStories,
       includeHighlightDetails,
       highlightDetailLimit,
     });
@@ -139,8 +148,7 @@ async function postUserFeed(req, res, next) {
       isNewBrowser: isNewBrowser === true || isNewBrowser === 'true',
       // Story/highlight enrichment — undefined values fall back to the env
       // defaults inside resolveStoryOptions().
-      includeStories,
-      includeStoryHighlights,
+      includeStories: resolvedIncludeStories,
       includeHighlightDetails,
       highlightDetailLimit,
     });

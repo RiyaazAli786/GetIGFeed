@@ -1,7 +1,7 @@
 # GetIGFeed — Complete Workspace & Architecture Context
 
 > Living reference for the entire GetIGFeed repository. Last updated on 2026-08-25.
-> Companion docs: [Master.md](file:///c:/CoreProjects/GetIGFeed/Master.md) (API Reference), [API.md](file:///c:/CoreProjects/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///c:/CoreProjects/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment).
+> Companion docs: [Master.md](file:///d:/CoreProject/GetIGFeed/Master.md) (API Reference), [API.md](file:///d:/CoreProject/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///d:/CoreProject/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///d:/CoreProject/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///d:/CoreProject/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment).
 
 ---
 
@@ -216,7 +216,7 @@ GetIGFeed/
 
 ## 7. Key Maintenance & Operational Guides
 
-* **[Master API Reference](file:///c:/CoreProjects/GetIGFeed/Master.md)**: Exhaustive request and response shape specifications.
-* **[Developer Setup & Execution Guide](file:///c:/CoreProjects/GetIGFeed/Run.md)**: Operational guide for local execution, test cases, and troubleshooting.
-* **[Render Hosting Deployment](file:///c:/CoreProjects/GetIGFeed/DEPLOY.md)**: Instructions for deploying to Render platform with B2 storage backend.
-* **[VPS & Docker Deployment](file:///c:/CoreProjects/GetIGFeed/DEPLOY_VPS.md)**: Container deployment guide for Hostinger / VPS environments with Nginx reverse proxy.
+* **[Master API Reference](file:///d:/CoreProject/GetIGFeed/Master.md)**: Exhaustive request and response shape specifications.
+* **[Developer Setup & Execution Guide](file:///d:/CoreProject/GetIGFeed/Run.md)**: Operational guide for local execution, test cases, and troubleshooting.
+* **[Render Hosting Deployment](file:///d:/CoreProject/GetIGFeed/DEPLOY.md)**: Instructions for deploying to Render platform with B2 storage backend.
+* **[VPS & Docker Deployment](file:///d:/CoreProject/GetIGFeed/DEPLOY_VPS.md)**: Container deployment guide for Hostinger / VPS environments with Nginx reverse proxy.

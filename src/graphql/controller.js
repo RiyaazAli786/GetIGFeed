@@ -40,9 +40,16 @@ async function fetchFeed(req, res, next) {
         .json({ success: false, error: 'username is required (path, query, or body).' });
     }
 
+    const src = { ...(req.params || {}), ...(req.query || {}), ...(req.body || {}) };
     const opts = {
-      first: req.query.first || req.body?.first || 12,
-      after: req.query.after || req.query.endCursor || req.body?.after || req.body?.endCursor,
+      first: src.first || 12,
+      after: src.after || src.endCursor,
+      includeStories:
+        src.includeStories ??
+        src.include_stories ??
+        src.includeStoriesAndHighlights ??
+        src.includeStoryHighlights ??
+        src.stories,
     };
 
     const result = await service.fetchFromGraphQL(username, opts);

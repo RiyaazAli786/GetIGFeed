@@ -271,6 +271,7 @@ async function collectHighlights(ig, username, userId, { withDetails, limit, con
 async function buildConvertedFeed(ig, username, opts = {}) {
   const {
     pages = 1,
+    includeStories = false,
     includeHighlightDetails = true,
     highlightDetailLimit = 0,
     highlightDetailConcurrency = ig.concurrency,
@@ -290,26 +291,34 @@ async function buildConvertedFeed(ig, username, opts = {}) {
   const owner = { id: userNode.id, username: userNode.username };
   const errors = {};
 
+  const fetchStories = includeStories
+    ? ig
+        .storiesRaw(username)
+        .then((payload) => (payload?.result || []).map((item) => toStoryItem(item, userNode.username)))
+        .catch((err) => {
+          errors.stories = err.message;
+          return [];
+        })
+    : Promise.resolve([]);
+
+  const fetchHighlights = includeStories
+    ? collectHighlights(ig, username, userNode.id, {
+        withDetails: includeHighlightDetails,
+        limit: highlightDetailLimit,
+        concurrency: highlightDetailConcurrency,
+      }).catch((err) => {
+        errors.highlights = err.message;
+        return { bubbles: [], details: [], truncated: false };
+      })
+    : Promise.resolve({ bubbles: [], details: [], truncated: false });
+
   const [posts, stories, highlights] = await Promise.all([
     collectPosts(ig, username, pages).catch((err) => {
       errors.posts = err.message;
       return { edges: [], pageInfo: null };
     }),
-    ig
-      .storiesRaw(username)
-      .then((payload) => (payload?.result || []).map((item) => toStoryItem(item, userNode.username)))
-      .catch((err) => {
-        errors.stories = err.message;
-        return [];
-      }),
-    collectHighlights(ig, username, userNode.id, {
-      withDetails: includeHighlightDetails,
-      limit: highlightDetailLimit,
-      concurrency: highlightDetailConcurrency,
-    }).catch((err) => {
-      errors.highlights = err.message;
-      return { bubbles: [], details: [], truncated: false };
-    }),
+    fetchStories,
+    fetchHighlights,
   ]);
 
   // Keyed by highlight id, so a consumer holding one can read its media without
