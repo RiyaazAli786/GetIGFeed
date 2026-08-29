@@ -346,16 +346,18 @@ async function buildConvertedFeed(ig, username, opts = {}) {
     source: 'anonyig',
     // Present only when a part failed; the nodes below still describe themselves.
     errors: Object.keys(errors).length ? errors : null,
+  };
 
-    stories: {
+  if (includeStories) {
+    response.stories = {
       available: stories.length > 0,
       count: stories.length,
       source: errors.stories ? null : 'anonyig',
       error: errors.stories || null,
       items: stories,
-    },
+    };
 
-    highlights: {
+    response.highlights = {
       available: highlights.bubbles.length > 0,
       count: highlights.bubbles.length,
       source: errors.highlights ? null : 'anonyig',
@@ -365,18 +367,18 @@ async function buildConvertedFeed(ig, username, opts = {}) {
         // Cross-reference: the key to look this bubble up under highlight_details.
         itemCount: detailsById[bubble.id]?.count ?? null,
       })),
-    },
-  };
-
-  if (includeHighlightDetails) {
-    response.highlight_details = {
-      available: highlights.details.some((d) => d.count > 0),
-      count: highlights.details.length,
-      // True when there were more bubbles than highlightDetailLimit allowed.
-      truncated: highlights.truncated,
-      error: errors.highlights || null,
-      items: detailsById,
     };
+
+    if (includeHighlightDetails) {
+      response.highlight_details = {
+        available: highlights.details.some((d) => d.count > 0),
+        count: highlights.details.length,
+        // True when there were more bubbles than highlightDetailLimit allowed.
+        truncated: highlights.truncated,
+        error: errors.highlights || null,
+        items: detailsById,
+      };
+    }
   }
 
   return response;

@@ -43,7 +43,7 @@ function resolveStoryOptions(opts = {}) {
     opts.includeStoriesAndHighlights ??
     opts.includeStoryHighlights ??
     opts.stories;
-  const enabled = flag(rawValue, defaults.includeStories);
+  const enabled = flag(rawValue, false);
   return {
     enabled,
     includeHighlightDetails: flag(

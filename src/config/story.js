@@ -44,8 +44,8 @@ const config = {
 
   // How the feed endpoint enriches its response with stories / highlights.
   feed: {
-    // Fetch stories + highlights alongside feed requests (disabled by default unless URL param or env is true).
-    includeStories: process.env.FEED_INCLUDE_STORIES === 'true',
+    // Fetch stories + highlights alongside feed requests (disabled by default unless URL param is true).
+    includeStories: false,
     // Also expand each highlight bubble into its media items.
     includeHighlightDetails: process.env.FEED_INCLUDE_HIGHLIGHT_DETAILS !== 'false',
     // 0 = expand EVERY highlight (the default). Each one costs an upstream call,
