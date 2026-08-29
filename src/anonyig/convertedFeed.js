@@ -277,7 +277,16 @@ async function buildConvertedFeed(ig, username, opts = {}) {
     highlightDetailConcurrency = ig.concurrency,
   } = opts;
 
-  const profile = await ig.userInfo(username);
+  const errors = {};
+
+  const [profile, posts] = await Promise.all([
+    ig.userInfo(username),
+    collectPosts(ig, username, pages).catch((err) => {
+      errors.posts = err.message;
+      return { edges: [], pageInfo: null };
+    }),
+  ]);
+
   const user = profile?.result?.[0]?.user;
   if (!user) {
     throw new AnonyIGError(`no user data for "${username}"`, {
@@ -289,37 +298,26 @@ async function buildConvertedFeed(ig, username, opts = {}) {
 
   const userNode = toUserNode(user);
   const owner = { id: userNode.id, username: userNode.username };
-  const errors = {};
 
-  const fetchStories = includeStories
-    ? ig
-        .storiesRaw(username)
-        .then((payload) => (payload?.result || []).map((item) => toStoryItem(item, userNode.username)))
-        .catch((err) => {
-          errors.stories = err.message;
-          return [];
-        })
-    : Promise.resolve([]);
-
-  const fetchHighlights = includeStories
-    ? collectHighlights(ig, username, userNode.id, {
-        withDetails: includeHighlightDetails,
-        limit: highlightDetailLimit,
-        concurrency: highlightDetailConcurrency,
-      }).catch((err) => {
-        errors.highlights = err.message;
-        return { bubbles: [], details: [], truncated: false };
-      })
-    : Promise.resolve({ bubbles: [], details: [], truncated: false });
-
-  const [posts, stories, highlights] = await Promise.all([
-    collectPosts(ig, username, pages).catch((err) => {
-      errors.posts = err.message;
-      return { edges: [], pageInfo: null };
-    }),
-    fetchStories,
-    fetchHighlights,
-  ]);
+  const [stories, highlights] = includeStories
+    ? await Promise.all([
+        ig
+          .storiesRaw(username)
+          .then((payload) => (payload?.result || []).map((item) => toStoryItem(item, userNode.username)))
+          .catch((err) => {
+            errors.stories = err.message;
+            return [];
+          }),
+        collectHighlights(ig, username, userNode.id, {
+          withDetails: includeHighlightDetails,
+          limit: highlightDetailLimit,
+          concurrency: highlightDetailConcurrency,
+        }).catch((err) => {
+          errors.highlights = err.message;
+          return { bubbles: [], details: [], truncated: false };
+        }),
+      ])
+    : [[], { bubbles: [], details: [], truncated: false }];
 
   // Keyed by highlight id, so a consumer holding one can read its media without
   // scanning — the same map feedStoryMerge.detailsById() builds.

@@ -112,8 +112,8 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     // response carries at the top level.
     profile = mergeProfiles(data.user, posts[0]?.user);
     if (!hasProfileCounts(profile)) {
-      // Profile details missing counts -> fetch details as fallback
-      const fetchedDetails = await fetchUserProfileDetails(param.client, inputUser, headers);
+      // Profile details missing counts -> fetch details as fast fallback (non-blocking)
+      const fetchedDetails = await fetchUserProfileDetails(param.client, inputUser, headers, profile);
       if (fetchedDetails) profile = mergeProfiles(profile, fetchedDetails);
     }
 
@@ -228,13 +228,13 @@ function hasProfileCounts(user) {
  * and i.instagram.com fallbacks and instead uses the www.instagram.com api/v1
  * surface accepted by captured web sessions.
  */
-async function fetchUserProfileDetails(client, usernameOrId, headers) {
+async function fetchUserProfileDetails(client, usernameOrId, headers, initialProfile = null) {
   const clean = normalizeUsername(usernameOrId);
   if (!clean) return null;
 
-  let userObj = null;
-  let mediaCount = 0;
-  let pk = /^\d+$/.test(clean) ? clean : null;
+  let userObj = initialProfile || null;
+  let mediaCount = pickCount(userObj, 'media_count', 'edge_owner_to_timeline_media') || 0;
+  let pk = numericPk(userObj?.pk_id, userObj?.pk, userObj?.id) || (/^\d+$/.test(clean) ? clean : null);
 
   if (!pk) {
     const feedUrl =
@@ -246,16 +246,16 @@ async function fetchUserProfileDetails(client, usernameOrId, headers) {
         return user || d.items[0]?.user || null;
       }
       return user;
-    });
+    }, 2500);
     if (feedUser) {
-      userObj = feedUser;
+      userObj = mergeProfiles(userObj, feedUser);
       pk = numericPk(feedUser.pk_id, feedUser.pk, feedUser.id);
     }
   }
 
   if (pk) {
     const infoUrl = `https://www.instagram.com/api/v1/users/${pk}/info/`;
-    const infoUser = await getProfileFrom(client, infoUrl, headers, (d) => d?.user);
+    const infoUser = await getProfileFrom(client, infoUrl, headers, (d) => d?.user, 2500);
     if (infoUser) {
       userObj = mergeProfiles(userObj, infoUser);
       const infoMediaCount = pickCount(infoUser, 'media_count', 'edge_owner_to_timeline_media');
@@ -265,7 +265,7 @@ async function fetchUserProfileDetails(client, usernameOrId, headers) {
   }
 
   const htmlUsername = userObj?.username || (/^\d+$/.test(clean) ? null : clean);
-  if ((!userObj || !hasProfileCounts(userObj) || mediaCount <= 0) && htmlUsername) {
+  if (!userObj && htmlUsername) {
     const og = await fetchOpenGraphProfile(client, htmlUsername);
     if (og) {
       userObj = mergeProfiles(userObj, og);
@@ -309,6 +309,7 @@ async function fetchOpenGraphProfile(client, username) {
         'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
+      timeout: 2500,
     });
     if (response.status < 200 || response.status >= 300 || !response.data) return null;
     const html = String(response.data);
@@ -362,9 +363,9 @@ function parseFormattedCount(value) {
 }
 
 /** One profile fetch: GET, check status, pull the user out. Never throws. */
-async function getProfileFrom(client, url, headers, extract) {
+async function getProfileFrom(client, url, headers, extract, timeoutMs = 2500) {
   try {
-    const response = await client.get(url, { headers });
+    const response = await client.get(url, { headers, timeout: timeoutMs });
     if (response.status < 200 || response.status >= 300) {
       // eslint-disable-next-line no-console
       console.warn(`[getUserFeed] profile fetch ${url} returned HTTP ${response.status}`);
