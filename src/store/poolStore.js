@@ -92,6 +92,7 @@ function mask(value, visible = 4) {
  * Accepts:
  *   - a raw sessionid string: "64827392%3AAbC...%3A17"
  *   - a cookie string: "sessionid=...; csrftoken=...; ds_user_id=...; mid=..."
+ *   - a Chrome/extension cookie export array: [{ name, value, domain, ... }]
  *   - an object: { sessionid, csrftoken, mid, dsUserId|ds_user_id, cookies, label }
  * @returns {{ secret: object, dsUserId: string, label: string|undefined }}
  */
@@ -103,13 +104,25 @@ function parseSessionInput(input) {
   let label;
   let cookies;
 
-  if (input && typeof input === 'object' && !Array.isArray(input)) {
+  if (Array.isArray(input)) {
+    cookies = normalizeCookieArray(input);
+    sessionid = findCookieValue(cookies, 'sessionid');
+    csrftoken = findCookieValue(cookies, 'csrftoken');
+    dsUserId = findCookieValue(cookies, 'ds_user_id');
+    mid = findCookieValue(cookies, 'mid');
+  } else if (input && typeof input === 'object') {
     sessionid = input.sessionid || input.sessionId || '';
     csrftoken = input.csrftoken || input.csrfToken || '';
     mid = input.mid || '';
     dsUserId = input.dsUserId || input.ds_user_id || '';
     label = input.label;
-    if (Array.isArray(input.cookies)) cookies = input.cookies;
+    if (Array.isArray(input.cookies)) {
+      cookies = normalizeCookieArray(input.cookies);
+      sessionid = sessionid || findCookieValue(cookies, 'sessionid');
+      csrftoken = csrftoken || findCookieValue(cookies, 'csrftoken');
+      dsUserId = dsUserId || findCookieValue(cookies, 'ds_user_id');
+      mid = mid || findCookieValue(cookies, 'mid');
+    }
   } else if (typeof input === 'string') {
     const str = input.trim();
     if (/(^|[;\s])sessionid=/.test(str) || str.includes('=')) {
@@ -145,6 +158,22 @@ function parseSessionInput(input) {
     dsUserId,
     label,
   };
+}
+
+function normalizeCookieArray(input) {
+  return input
+    .filter((cookie) => cookie && cookie.name && cookie.value !== undefined)
+    .map((cookie) => ({
+      ...cookie,
+      name: String(cookie.name),
+      value: String(cookie.value),
+      domain: String(cookie.domain || 'instagram.com'),
+    }));
+}
+
+function findCookieValue(cookies, name) {
+  const cookie = cookies.find((c) => c.name === name);
+  return cookie ? String(cookie.value || '').trim() : '';
 }
 
 /**
