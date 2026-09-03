@@ -109,8 +109,10 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     nextMaxId = data.next_max_id ?? null;
 
     // Profile fields (follower/following counts, HD avatar) that the feed
-    // response carries at the top level.
-    profile = mergeProfiles(data.user, posts[0]?.user);
+    // response carries at the top level. For username lookups, Instagram can
+    // return mixed/collab media, so only use profile candidates that match the
+    // requested handle.
+    profile = profileFromFeed(data.user, posts, inputHandle);
     if (!hasProfileCounts(profile)) {
       // Profile details missing counts -> fetch details as fast fallback (non-blocking)
       const profileHeaders = { ...headers };
@@ -218,6 +220,24 @@ function mergeProfiles(...profiles) {
     }
   }
   return Object.keys(merged).length ? merged : null;
+}
+
+function profileFromFeed(feedUser, posts, requestedHandle) {
+  if (!requestedHandle) return mergeProfiles(feedUser, posts?.[0]?.user);
+
+  const matchingFeedUser = usernameMatches(feedUser?.username, requestedHandle)
+    ? feedUser
+    : null;
+  const matchingPostUser = (posts || [])
+    .map((post) => post?.user)
+    .find((user) => usernameMatches(user?.username, requestedHandle));
+
+  return mergeProfiles(matchingPostUser, matchingFeedUser);
+}
+
+function usernameMatches(actual, expected) {
+  const normalize = (value) => String(value || '').trim().replace(/^@/, '').toLowerCase();
+  return normalize(actual) && normalize(actual) === normalize(expected);
 }
 
 /**
@@ -570,4 +590,5 @@ module.exports = {
   fetchFbDtsgToken,
   createJazoest,
   hasProfileCounts,
+  profileFromFeed,
 };

@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { hasProfileCounts } = require('./instagram.service');
+const { hasProfileCounts, profileFromFeed } = require('./instagram.service');
 
 test('hasProfileCounts treats 0/0 counts as incomplete', () => {
   assert.strictEqual(
@@ -23,4 +23,19 @@ test('hasProfileCounts accepts non-zero profile counts', () => {
     }),
     true
   );
+});
+
+test('profileFromFeed prefers the requested username over unrelated feed user', () => {
+  const profile = profileFromFeed(
+    { pk_id: '1962023419', username: 'sachintendulkar', follower_count: 51681492 },
+    [
+      { user: { pk: '1962023419', username: 'sachintendulkar' } },
+      { user: { pk: '70374808999', username: 'tenxyouworld' } },
+    ],
+    'tenxyouworld'
+  );
+
+  assert.strictEqual(profile.username, 'tenxyouworld');
+  assert.strictEqual(String(profile.pk), '70374808999');
+  assert.strictEqual(profile.follower_count, undefined);
 });
