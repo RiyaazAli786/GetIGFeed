@@ -214,7 +214,12 @@ Automatic: push to `main` and the CI/CD workflow above handles it. Manually:
 ```bash
 cd /opt/getigfeed
 git pull
-docker compose up -d --build
+docker compose up -d --build --remove-orphans
+for i in $(seq 1 30); do
+  curl -fsS http://127.0.0.1:3000/health && break
+  sleep 2
+done
+docker compose ps
 ```
 
 ## Troubleshooting

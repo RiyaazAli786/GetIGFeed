@@ -25,11 +25,24 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             if command -v docker &>/dev/null && docker compose version &>/dev/null; then
-              docker compose up -d --build
+              docker compose up -d --build --remove-orphans
             elif command -v docker-compose &>/dev/null; then
-              docker-compose up -d --build
+              docker-compose up -d --build --remove-orphans
             else
-              sudo docker compose up -d --build
+              sudo docker compose up -d --build --remove-orphans
             fi
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:3000/health >/dev/null; then
+                echo "GetIGFeed is healthy"
+                break
+              fi
+              if [ "$i" = "30" ]; then
+                echo "GetIGFeed did not become healthy after restart"
+                docker compose ps || true
+                docker compose logs --tail=120 getigfeed || true
+                exit 1
+              fi
+              sleep 2
+            done
             docker image prune -f || true
           '

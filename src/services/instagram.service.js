@@ -225,9 +225,10 @@ function mergeProfiles(...profiles) {
  * private-API (`follower_count`) or web (`edge_followed_by.count`) spelling.
  */
 function hasProfileCounts(user) {
-  const has = (a, b) =>
-    typeof user?.[a] === 'number' || typeof user?.[b]?.count === 'number';
-  return has('follower_count', 'edge_followed_by') && has('following_count', 'edge_follow');
+  const followers = pickCount(user, 'follower_count', 'edge_followed_by', 'followers_count');
+  const following = pickCount(user, 'following_count', 'edge_follow', 'follows_count');
+  if (followers === null || following === null) return false;
+  return followers > 0 || following > 0;
 }
 
 /**
@@ -568,4 +569,5 @@ module.exports = {
   extractPolarisHoverCardUser,
   fetchFbDtsgToken,
   createJazoest,
+  hasProfileCounts,
 };

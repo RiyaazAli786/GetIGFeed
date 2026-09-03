@@ -4,6 +4,8 @@ services:
     image: getigfeed:latest
     container_name: getigfeed
     restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
     env_file:
       - .env
     environment:
@@ -15,3 +17,15 @@ services:
       - "127.0.0.1:3000:3000"
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
