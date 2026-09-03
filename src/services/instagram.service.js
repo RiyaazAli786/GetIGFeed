@@ -113,7 +113,14 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     profile = mergeProfiles(data.user, posts[0]?.user);
     if (!hasProfileCounts(profile)) {
       // Profile details missing counts -> fetch details as fast fallback (non-blocking)
-      const fetchedDetails = await fetchUserProfileDetails(param.client, inputUser, headers, profile);
+      const profileHeaders = { ...headers };
+      try {
+        const cookieHeader = param.jar.getCookieStringSync('https://www.instagram.com/');
+        if (cookieHeader) profileHeaders.Cookie = cookieHeader;
+      } catch {
+        /* cookie header is best-effort; the cookie agent still has the jar */
+      }
+      const fetchedDetails = await fetchUserProfileDetails(param.client, inputUser, profileHeaders, profile);
       if (fetchedDetails) profile = mergeProfiles(profile, fetchedDetails);
     }
 
@@ -236,6 +243,20 @@ async function fetchUserProfileDetails(client, usernameOrId, headers, initialPro
   let mediaCount = pickCount(userObj, 'media_count', 'edge_owner_to_timeline_media') || 0;
   let pk = numericPk(userObj?.pk_id, userObj?.pk, userObj?.id) || (/^\d+$/.test(clean) ? clean : null);
 
+  if (!pk && !/^\d+$/.test(clean)) {
+    pk = await resolveUsernamePk(clean);
+  }
+
+  if (pk) {
+    const hoverUser = await fetchPolarisHoverCardProfile(client, clean, pk, headers);
+    if (hoverUser) {
+      userObj = mergeProfiles(userObj, hoverUser);
+      const hoverMediaCount = pickCount(hoverUser, 'media_count', 'edge_owner_to_timeline_media');
+      if (typeof hoverMediaCount === 'number') mediaCount = hoverMediaCount;
+      pk = numericPk(hoverUser.pk_id, hoverUser.pk, hoverUser.id, pk);
+    }
+  }
+
   if (!pk) {
     const feedUrl =
       `https://www.instagram.com/api/v1/feed/user/${encodeURIComponent(clean)}/username/?count=${PAGE_COUNT}`;
@@ -300,6 +321,141 @@ async function fetchUserProfileDetails(client, usernameOrId, headers, initialPro
     normalized.media_count = resolvedMediaCount;
   }
   return normalized;
+}
+
+async function fetchPolarisHoverCardProfile(client, usernameOrId, userId, headers) {
+  const targetUserId = numericPk(userId);
+  if (!targetUserId) return null;
+
+  const handle = normalizeUsername(usernameOrId);
+  const csrfToken = headers?.['x-csrftoken'] || headers?.['X-CSRFToken'] || '';
+  const lsdToken = process.env.INSTAGRAM_LSD_TOKEN || 'toxLtqxo-5GooSYWUv2PJ1';
+  const referer = /^\d+$/.test(handle)
+    ? 'https://www.instagram.com/'
+    : `https://www.instagram.com/${encodeURIComponent(handle)}/`;
+
+  const body = new URLSearchParams({
+    jazoest: createJazoest(targetUserId),
+    __crn: 'comet.igweb.PolarisProfilePostsTabRoute',
+    fb_api_caller_class: 'RelayModern',
+    fb_api_req_friendly_name: 'PolarisUserHoverCardContentV2Query',
+    server_timestamps: 'true',
+    variables: JSON.stringify({ userID: targetUserId }),
+    doc_id: '27756568060663620',
+  });
+
+  try {
+    const fbDtsg = await fetchFbDtsgToken(client, headers?.Cookie, handle);
+    if (fbDtsg) body.set('fb_dtsg', fbDtsg);
+
+    const response = await client.post(
+      'https://www.instagram.com/api/graphql',
+      body.toString(),
+      {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+            '(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'sec-ch-ua-full-version-list':
+            '"Not=A?Brand";v="99.0.0.0", "Google Chrome";v="151.0.7922.108", "Chromium";v="151.0.7922.108"',
+          'sec-ch-ua-platform': '"Windows"',
+          'viewport-width': '1517',
+          'sec-ch-ua': '"Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"',
+          'sec-ch-ua-model': '""',
+          'sec-ch-ua-mobile': '?0',
+          'X-IG-App-ID': X_IG_APP_ID,
+          'X-FB-LSD': lsdToken,
+          'X-IG-Max-Touch-Points': '0',
+          'X-FB-Friendly-Name': 'PolarisUserHoverCardContentV2Query',
+          dpr: '0.9',
+          'sec-ch-prefers-color-scheme': 'dark',
+          DNT: '1',
+          'sec-ch-ua-platform-version': '"15.0.0"',
+          Accept: '*/*',
+          Origin: 'https://www.instagram.com',
+          'Sec-Fetch-Site': 'same-origin',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Dest': 'empty',
+          Referer: referer,
+          'Accept-Language': 'en-US,en;q=0.9',
+          ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
+          ...(headers?.['x-ig-www-claim'] ? { 'X-IG-WWW-Claim': headers['x-ig-www-claim'] } : {}),
+          ...(headers?.Cookie ? { Cookie: headers.Cookie } : {}),
+        },
+        timeout: 2500,
+      }
+    );
+
+    if (response.status < 200 || response.status >= 300 || !response.data) {
+      // eslint-disable-next-line no-console
+      console.warn(`[getUserFeed] hover-card profile fetch returned HTTP ${response.status}`);
+      return null;
+    }
+
+    const payload = parseInstagramGraphqlPayload(response.data);
+    const user = extractPolarisHoverCardUser(payload);
+    return user || null;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[getUserFeed] hover-card profile fallback failed for ${targetUserId}:`, err.message);
+    return null;
+  }
+}
+
+async function fetchFbDtsgToken(client, cookieHeader, targetHandle = 'accounts/edit') {
+  if (!cookieHeader) return null;
+  try {
+    const clean = normalizeUsername(targetHandle);
+    const profilePath =
+      !clean || clean === 'accounts/edit' || /^\d+$/.test(clean)
+        ? '/accounts/edit/'
+        : `/${encodeURIComponent(clean)}/`;
+    const response = await client.get(`https://www.instagram.com${profilePath}`, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+          '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Cookie: cookieHeader,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      responseType: 'text',
+      transformResponse: [(data) => data],
+      timeout: 2500,
+    });
+    const html = String(response.data || '');
+    return (
+      /"DTSGInitialData"\s*,\s*\[]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/i.exec(html)?.[1] ||
+      /name=["']fb_dtsg["']\s+value=["']([^"']+)["']/i.exec(html)?.[1] ||
+      /"token"\s*:\s*"([A-Za-z0-9_-]+:[0-9]+:[0-9]+)"/i.exec(html)?.[1] ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function parseInstagramGraphqlPayload(data) {
+  if (!data) return null;
+  if (typeof data !== 'string') return data;
+  const clean = data.trim().replace(/^for\s*\(;;\);/, '');
+  if (!clean || clean.startsWith('<')) return null;
+  return clean ? JSON.parse(clean) : null;
+}
+
+function extractPolarisHoverCardUser(payload) {
+  return (
+    payload?.data?.xig_user_by_igid_v2?.user_dict ||
+    payload?.data?.user ||
+    payload?.user ||
+    null
+  );
+}
+
+function createJazoest(value = '') {
+  let sum = 0;
+  for (const ch of String(value)) sum += ch.charCodeAt(0);
+  return `2${sum}`;
 }
 
 async function fetchOpenGraphProfile(client, username) {
@@ -405,4 +561,11 @@ function humanizeFetchError(message = '') {
   return message || 'request failed';
 }
 
-module.exports = { getUserFeed };
+module.exports = {
+  getUserFeed,
+  fetchPolarisHoverCardProfile,
+  parseInstagramGraphqlPayload,
+  extractPolarisHoverCardUser,
+  fetchFbDtsgToken,
+  createJazoest,
+};

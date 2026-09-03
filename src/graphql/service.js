@@ -16,6 +16,7 @@ const { getWebParameter } = require('../services/webParameter');
 const { getCsrfToken } = require('../services/authToken.service');
 const poolStore = require('../store/poolStore');
 const { X_IG_APP_ID, X_ASBD_ID } = require('../config/constants');
+const { pickCount } = require('../utils/mapFeedToWebProfile');
 
 /** doc_id for the timeline media GraphQL query (confirmed working 2026-08). */
 const GRAPHQL_DOC_ID = '7950326061742207';
@@ -53,8 +54,9 @@ function webBrowserHeaders(extra = {}) {
 async function resolveUserId(username) {
   // ── Strategy 1: public web_profile_info via native https ─────────────────
   try {
-    const id = await fetchWebProfileInfoId(username);
-    if (id) return id;
+    const user = await fetchWebProfileInfoUser(username);
+    const id = user?.id ?? user?.pk_id;
+    if (id && String(id).match(/^\d+$/)) return String(id);
   } catch (_) {}
 
   // ── Strategy 2: anonyig getUser (no session, proven working) ─────────────
@@ -91,7 +93,7 @@ async function resolveUserId(username) {
  * Fetch the numeric user ID from the public web_profile_info endpoint using
  * Node's native https module (avoids any axios base-URL / interceptor issues).
  */
-function fetchWebProfileInfoId(username) {
+function fetchWebProfileInfoUser(username) {
   return new Promise((resolve, reject) => {
     const https = require('https');
     const url =
@@ -113,8 +115,7 @@ function fetchWebProfileInfoId(username) {
       res.on('end', () => {
         try {
           const parsed = JSON.parse(raw);
-          const id = parsed?.data?.user?.id ?? parsed?.data?.user?.pk_id;
-          resolve(id && String(id).match(/^\d+$/) ? String(id) : null);
+          resolve(parsed?.data?.user || null);
         } catch {
           resolve(null);
         }
@@ -125,6 +126,42 @@ function fetchWebProfileInfoId(username) {
 
 
 // ─── GraphQL query ───────────────────────────────────────────────────────────
+
+/** Fetch a profile header for the converted GraphQL response when available. */
+async function fetchProfileForConvertedResponse(handle, fallbackId, param, headers) {
+  try {
+    const user = await fetchWebProfileInfoUser(handle);
+    if (user) return user;
+  } catch (_) {}
+
+  try {
+    const url =
+      'https://www.instagram.com/api/v1/users/web_profile_info/?' +
+      `username=${encodeURIComponent(handle)}`;
+    const r = await param.client.get(url, { headers });
+    return r.data?.data?.user || null;
+  } catch (_) {}
+
+  return { id: fallbackId, username: handle };
+}
+
+function convertedUserProfile(user, fallbackId, fallbackUsername) {
+  return {
+    id: String(user?.id ?? user?.pk_id ?? fallbackId ?? ''),
+    username: user?.username ?? fallbackUsername,
+    full_name: user?.full_name ?? null,
+    is_private: Boolean(user?.is_private),
+    is_verified: Boolean(user?.is_verified),
+    profile_pic_url: user?.profile_pic_url ?? null,
+    profile_pic_url_hd: user?.profile_pic_url_hd ?? user?.profile_pic_url ?? null,
+    edge_followed_by: {
+      count: pickCount(user, 'follower_count', 'edge_followed_by', 'followers_count', 'followers') ?? 0,
+    },
+    edge_follow: {
+      count: pickCount(user, 'following_count', 'edge_follow', 'follows_count', 'following') ?? 0,
+    },
+  };
+}
 
 /**
  * Fetch timeline posts for a handle via the Instagram GraphQL doc_id query.
@@ -164,8 +201,12 @@ async function fetchFromGraphQL(username, opts = {}) {
 
   // ── Step 1: Resolve user ID ──────────────────────────────────────────────
   let userId;
+  let profileUser = null;
   try {
-    userId = await resolveUserId(handle);
+    profileUser = await fetchProfileForConvertedResponse(handle, null, param, baseHeaders);
+    userId = profileUser?.id ?? profileUser?.pk_id;
+    if (!userId || !String(userId).match(/^\d+$/)) userId = await resolveUserId(handle);
+    userId = String(userId);
   } catch (err) {
     throw err; // already has the right status code
   }
@@ -201,6 +242,11 @@ async function fetchFromGraphQL(username, opts = {}) {
   const timeline = gqlUser.edge_owner_to_timeline_media || {};
   const edges = Array.isArray(timeline.edges) ? timeline.edges : [];
   const pageInfo = timeline.page_info || {};
+  const userProfile = convertedUserProfile(
+    { ...(profileUser || {}), ...(gqlUser || {}) },
+    userId,
+    handle
+  );
 
 const {
   resolveStoryOptions,
@@ -219,8 +265,7 @@ const {
     endCursor: pageInfo.end_cursor ?? null,
     data: {
       user: {
-        id: userId,
-        username: handle,
+        ...userProfile,
         edge_owner_to_timeline_media: {
           count: timeline.count ?? edges.length,
           page_info: {

@@ -68,12 +68,34 @@ function taggedUsers(item) {
  */
 function pickCount(user, ...keys) {
   for (const key of keys) {
-    const v = user?.[key];
-    if (typeof v === 'number') return v;
+    const count = normalizeCount(user?.[key]);
+    if (count !== null) return count;
     // web_profile_info style: { count: n }
-    if (v && typeof v.count === 'number') return v.count;
+    const nestedCount = normalizeCount(user?.[key]?.count);
+    if (nestedCount !== null) return nestedCount;
   }
   return null;
+}
+
+function normalizeCount(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string') return null;
+
+  const clean = value.trim().replace(/\s+/g, '');
+  if (!clean) return null;
+
+  const suffix = clean.slice(-1).toUpperCase();
+  const hasSuffix = suffix === 'K' || suffix === 'M' || suffix === 'B';
+  const base = hasSuffix ? clean.slice(0, -1) : clean;
+  const parsed = Number(base.replace(/,/g, ''));
+  if (!Number.isFinite(parsed)) return null;
+
+  const multiplier =
+    suffix === 'K' ? 1_000 :
+    suffix === 'M' ? 1_000_000 :
+    suffix === 'B' ? 1_000_000_000 :
+    1;
+  return Math.trunc(parsed * multiplier);
 }
 
 /**
@@ -250,4 +272,4 @@ function buildWebProfileResponse(items, meta = {}) {
   };
 }
 
-module.exports = { buildWebProfileResponse, buildNode, pickCount };
+module.exports = { buildWebProfileResponse, buildNode, pickCount, normalizeCount };

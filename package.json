@@ -10,6 +10,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "node --test",
+    "test:hover-card": "node scripts/polaris-hover-card-check.js",
     "anonyig:chunk": "node src/anonyig/chunk.js",
     "fastdl:chunk": "node src/fastdl/chunk.js"
   },

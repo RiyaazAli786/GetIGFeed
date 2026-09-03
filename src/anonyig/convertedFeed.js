@@ -20,6 +20,7 @@
  */
 
 const { mapWithConcurrency } = require('../utils/helpers');
+const { pickCount } = require('../utils/mapFeedToWebProfile');
 const { AnonyIGError } = require('./client');
 
 const THUMBNAIL_SIZES = [150, 240, 320, 480, 640];
@@ -74,8 +75,12 @@ function toUserNode(user) {
     is_verified: Boolean(user?.is_verified),
     profile_pic_url: user?.profile_pic_url ?? null,
     profile_pic_url_hd: user?.profile_pic_url_hd ?? user?.profile_pic_url ?? null,
-    edge_followed_by: { count: num(user?.follower_count) ?? 0 },
-    edge_follow: { count: num(user?.following_count) ?? 0 },
+    edge_followed_by: {
+      count: pickCount(user, 'follower_count', 'edge_followed_by', 'followers_count', 'followers') ?? 0,
+    },
+    edge_follow: {
+      count: pickCount(user, 'following_count', 'edge_follow', 'follows_count', 'following') ?? 0,
+    },
   };
 }
 
@@ -331,7 +336,7 @@ async function buildConvertedFeed(ig, username, opts = {}) {
       user: {
         ...userNode,
         edge_owner_to_timeline_media: {
-          count: num(user.media_count) ?? posts.edges.length,
+          count: pickCount(user, 'media_count', 'edge_owner_to_timeline_media', 'posts_count') ?? posts.edges.length,
           page_info: {
             has_next_page: Boolean(posts.pageInfo?.has_next_page),
             end_cursor: posts.pageInfo?.end_cursor ?? null,
