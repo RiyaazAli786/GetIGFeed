@@ -1,11 +1,62 @@
 'use strict';
 
 const { getUserFeed } = require('../services/instagram.service');
+const {
+  getFallbackFeed,
+  shouldFallbackForPrivateResult,
+  shouldFallbackForError,
+} = require('../services/feedFallback.service');
+const { checkProxy } = require('../services/proxyCheck');
 const poolStore = require('../store/poolStore');
 const { logFeedAsync } = require('../store/feedLog');
 
 const FEED_CACHE_DEFAULT =
   String(process.env.FEED_CACHE_DEFAULT || 'false').toLowerCase() === 'true';
+
+function hasProxy(account) {
+  return Boolean(account?.accountBaseModel?.accountProxy?.proxyIp);
+}
+
+function accountWithProxy(account, proxySecret) {
+  return {
+    ...(account || {}),
+    accountBaseModel: {
+      ...(account?.accountBaseModel || {}),
+      accountProxy: {
+        proxyIp: proxySecret.host,
+        proxyPort: proxySecret.port,
+        proxyUsername: proxySecret.username || '',
+        proxyPassword: proxySecret.password || '',
+      },
+    },
+  };
+}
+
+async function nextValidPoolProxy() {
+  const count = poolStore.listProxies().length;
+  const checked = new Set();
+  for (let i = 0; i < count; i += 1) {
+    const proxySecret = poolStore.nextProxy();
+    if (!proxySecret) break;
+    const key = `${proxySecret.host}:${proxySecret.port}:${proxySecret.username || ''}`;
+    if (checked.has(key)) continue;
+    checked.add(key);
+
+    const result = await checkProxy(proxySecret);
+    if (result.ok && result.igReachable) {
+      return {
+        proxy: proxySecret,
+        check: {
+          ok: true,
+          igReachable: true,
+          ip: result.ip || null,
+          ms: result.ms,
+        },
+      };
+    }
+  }
+  return null;
+}
 
 /**
  * POST /api/user-feed
@@ -100,15 +151,8 @@ async function postUserFeed(req, res, next) {
       });
     }
 
-    // If still nothing and the pool is empty, there is no way to authenticate.
-    if (!account && poolStore.listSessions().length === 0) {
-      return res.status(400).json({
-        success: false,
-        error:
-          'No auth provided. Send "authToken" (+ optional "proxy"), a ' +
-          '"dominatorAccount", or add sessions via POST /api/sessions.',
-      });
-    }
+    const noAuthAvailable = !account && poolStore.listSessions().length === 0;
+    const initialHadProxy = hasProxy(account);
 
     const { feedCache, MemoryCache } = require('../utils/cache');
     const isBypass = String(fresh || bypassCache).toLowerCase() === 'true' || fresh === true || bypassCache === true;
@@ -140,9 +184,7 @@ async function postUserFeed(req, res, next) {
       }
     }
 
-    // getUserFeed → resolveAccount() fills any still-missing cookies/proxy
-    // from the encrypted pool.
-    const result = await getUserFeed(account, userId, {
+    const feedOptions = {
       maxId: feedMaxId,
       minTimestamp,
       isNewBrowser: isNewBrowser === true || isNewBrowser === 'true',
@@ -151,7 +193,84 @@ async function postUserFeed(req, res, next) {
       includeStories: resolvedIncludeStories,
       includeHighlightDetails,
       highlightDetailLimit,
-    });
+    };
+
+    let result;
+    let privateFeedError = null;
+    if (!noAuthAvailable) {
+      try {
+        // getUserFeed → resolveAccount() fills any still-missing cookies/proxy
+        // from the encrypted pool.
+        result = await getUserFeed(account, userId, feedOptions);
+      } catch (err) {
+        privateFeedError = err;
+      }
+    }
+
+    const needsFallback =
+      noAuthAvailable ||
+      shouldFallbackForError(privateFeedError) ||
+      shouldFallbackForPrivateResult(result);
+
+    if (needsFallback && !feedMaxId && !noAuthAvailable) {
+      const validProxy = await nextValidPoolProxy();
+      if (validProxy) {
+        const retryReason =
+          privateFeedError?.message || result?.error || 'Private feed failed before proxy retry.';
+        const proxyAccount = accountWithProxy(account, validProxy.proxy);
+        result = await getUserFeed(proxyAccount, userId, feedOptions);
+        if (result && typeof result === 'object') {
+          result.private_retry = {
+            used: true,
+            reason: retryReason,
+            proxy: {
+              source: 'pool',
+              valid: true,
+              exitIp: validProxy.check.ip,
+              ms: validProxy.check.ms,
+              replacedExistingProxy: initialHadProxy,
+            },
+          };
+        }
+        privateFeedError = null;
+      }
+    }
+
+    const stillNeedsFallback =
+      noAuthAvailable ||
+      shouldFallbackForError(privateFeedError) ||
+      shouldFallbackForPrivateResult(result);
+
+    if (stillNeedsFallback && !feedMaxId) {
+      const reason = noAuthAvailable
+        ? 'No auth provided and the stored session pool is empty.'
+        : privateFeedError?.message || result?.error || 'Private Instagram feed returned 401.';
+      try {
+        result = await getFallbackFeed(userId, {
+          pages: 1,
+          includeStories: resolvedIncludeStories,
+          includeHighlightDetails,
+          highlightDetailLimit,
+          reason,
+        });
+      } catch (fallbackErr) {
+        if (privateFeedError) throw privateFeedError;
+        if (noAuthAvailable) {
+          fallbackErr.message =
+            `${fallbackErr.message} No auth was available for the private feed path.`;
+        }
+        throw fallbackErr;
+      }
+    } else if (privateFeedError) {
+      throw privateFeedError;
+    } else if (noAuthAvailable) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'No auth provided. Send "authToken" (+ optional "proxy"), a ' +
+          '"dominatorAccount", or add sessions via POST /api/sessions.',
+      });
+    }
 
     // Success = at least one post in the web_profile_info edges.
     const edges = result?.data?.user?.edge_owner_to_timeline_media?.edges || [];

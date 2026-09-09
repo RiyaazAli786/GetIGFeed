@@ -95,13 +95,20 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
       : encodeURIComponent(inputUser);
     const endpoint = `/api/v1/feed/user/${feedTarget}/?count=${PAGE_COUNT}${maxParam}`;
     const response = await param.client.get(endpoint, { headers });
+    const data = response.data || {};
 
     // EnsureSuccessStatusCode equivalent.
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(`Request failed with status ${response.status}`);
+      const err = new Error(`Request failed with status ${response.status}`);
+      err.status = response.status;
+      err.instagram = {
+        status: data.status,
+        message: data.message,
+        spam: data.spam,
+        statusCode: data.status_code,
+      };
+      throw err;
     }
-
-    const data = response.data || {};
 
     // First page only — take the most recent PAGE_COUNT items.
     if (Array.isArray(data.items)) posts = data.items.slice(0, PAGE_COUNT);
@@ -140,7 +147,7 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     // Preserve that behavior but log + capture the reason for diagnostics.
     // eslint-disable-next-line no-console
     console.error('[getUserFeed] error:', err.message);
-    errorMessage = humanizeFetchError(err.message);
+    errorMessage = humanizeFetchError(err.message, err);
   }
 
   // Convert feed/user items → web_profile_info response shape.
@@ -566,7 +573,11 @@ async function getProfileFrom(client, url, headers, extract, timeoutMs = 2500) {
  * response stream through a proxy almost always means Instagram blocked the
  * proxy IP (common with datacenter proxies).
  */
-function humanizeFetchError(message = '') {
+function humanizeFetchError(message = '', err = null) {
+  const instagram = err?.instagram;
+  if (instagram?.spam) {
+    return `Instagram flagged the feed request as spam (HTTP ${err?.status || 400}).`;
+  }
   const m = String(message).toLowerCase();
   if (m.includes('stream has been aborted') || m.includes('aborted') || m.includes('econnreset')) {
     return 'Instagram reset the connection — the proxy IP is likely blocked ' +
