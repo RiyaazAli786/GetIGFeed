@@ -14,6 +14,7 @@ const anonyigRoutes = require('./anonyig/routes');
 const fastdlRoutes = require('./fastdl/routes');
 const graphqlRoutes = require('./graphql/routes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
+const { telegramRequestLogger } = require('./middleware/telegramRequestLogger');
 
 const app = express();
 
@@ -21,6 +22,7 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+app.use(telegramRequestLogger);
 
 // Health check
 app.use(healthRoutes);
