@@ -2,11 +2,40 @@
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.FEEDPILOT_BRIDGE_TIMEOUT_MS || 35000);
 
+function bridgeMode() {
+  const mode = String(
+    process.env.FEED_SOURCE_MODE ||
+      process.env.FEEDPILOT_BRIDGE_MODE ||
+      ''
+  ).trim().toLowerCase();
+
+  if (['pool', 'android_bridge', 'bridge_then_pool'].includes(mode)) {
+    return mode;
+  }
+
+  if (bridgeEnabled()) return fallbackEnabled() ? 'bridge_then_pool' : 'android_bridge';
+  return 'pool';
+}
+
 function bridgeEnabled() {
+  const mode = String(
+    process.env.FEED_SOURCE_MODE ||
+      process.env.FEEDPILOT_BRIDGE_MODE ||
+      ''
+  ).trim().toLowerCase();
+  if (mode === 'pool') return false;
+  if (mode === 'android_bridge' || mode === 'bridge_then_pool') return true;
   return String(process.env.FEEDPILOT_BRIDGE_ENABLED || 'false').toLowerCase() === 'true';
 }
 
 function fallbackEnabled() {
+  const mode = String(
+    process.env.FEED_SOURCE_MODE ||
+      process.env.FEEDPILOT_BRIDGE_MODE ||
+      ''
+  ).trim().toLowerCase();
+  if (mode === 'android_bridge') return false;
+  if (mode === 'bridge_then_pool') return true;
   return String(process.env.FEEDPILOT_BRIDGE_FALLBACK || 'true').toLowerCase() !== 'false';
 }
 
@@ -97,6 +126,7 @@ async function fetchViaFeedPilotBridge(input) {
 }
 
 module.exports = {
+  bridgeMode,
   bridgeEnabled,
   fallbackEnabled,
   fetchViaFeedPilotBridge,

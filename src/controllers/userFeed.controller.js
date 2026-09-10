@@ -10,6 +10,7 @@ const { checkProxy } = require('../services/proxyCheck');
 const poolStore = require('../store/poolStore');
 const { logFeedAsync } = require('../store/feedLog');
 const {
+  bridgeMode,
   bridgeEnabled,
   fallbackEnabled,
   fetchViaFeedPilotBridge,
@@ -142,6 +143,7 @@ async function postUserFeed(req, res, next) {
         .json({ success: false, error: 'userId is required.' });
     }
 
+    const feedSourceMode = bridgeMode();
     if (bridgeEnabled() && !feedMaxId) {
       const bridgeResult = await fetchViaFeedPilotBridge({
         requestId: req.headers['x-request-id'] || undefined,
@@ -181,6 +183,8 @@ async function postUserFeed(req, res, next) {
       if (bridgeResult.used) {
         res.setHeader('X-FeedPilot-Bridge', 'FALLBACK');
       }
+    } else {
+      res.setHeader('X-FeedPilot-Bridge', feedSourceMode === 'pool' ? 'DISABLED_POOL_MODE' : 'SKIPPED');
     }
 
     // Decide the account to use, in priority order. Only treat dominatorAccount
