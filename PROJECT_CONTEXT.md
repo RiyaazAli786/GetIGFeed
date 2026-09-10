@@ -1,238 +1,301 @@
 # GetIGFeed Project Context
 
-Last built: 2026-09-03
+Last built: 2026-09-10
 
 ## What This Repo Is
 
-GetIGFeed is a Node.js/Express API service for fetching Instagram profile media in several ways:
+**GetIGFeed** is a resilient Node.js/Express microservice for fetching Instagram profile media, stories, highlights, posts, and reels across multiple execution tiers:
 
-- Authenticated Instagram private mobile API feed fetches through `/api/user-feed`.
-- Sessionless stories/highlights through third-party story sources under `/api/instagram`.
-- Sessionless AnonyIG worker-hub access under `/api/anonyig`.
-- Sessionless FastDL worker-hub/media resolution under `/api/fastdl`.
-- Direct Instagram GraphQL timeline fetches under `/api/graphql`.
-- A browser admin dashboard at `/admin` for session/proxy pool management, feed preview, story/highlight preview, proxy checks, and downloads.
+1. **FeedPilot Android Device Bridge (`src/services/feedPilotBridge.service.js`)**:
+   - Direct integration with real Android physical devices running Instagram to bypass datacenter/web scraping blocks.
+   - Configured via `FEED_SOURCE_MODE` (`bridge_then_pool`, `android_bridge`, `pool`).
+   - Normalizes Android bridge responses into standard `web_profile_info` JSON with `feedpilot_bridge` metadata.
 
-The core response shape is Instagram-like `web_profile_info`, with optional top-level `stories`, `highlights`, and `highlight_details` nodes merged into the same payload.
+2. **Authenticated Instagram Mobile / Private API (`src/services/instagram.service.js`)**:
+   - Accesses `/api/v1/feed/user/<userId>` and `/api/v1/feed/user/<username>/username` via captured session cookies and proxies.
+   - Profile resolution engine: Uses TopFollow-style web queries, Polaris hover card GraphQL queries (`PolarisUserHoverCardContentV2Query`), and user info endpoints to guarantee non-zero follower/following/media counts while prioritizing the requested handle over collab posters.
+   - Automatic proxy failure detection and rotation (`nextValidPoolProxy`) when session requests hit 401, challenges, or spam blocks.
 
-## Runtime
+3. **Multi-Tier Public Fallback Engine (`src/services/feedFallback.service.js`)**:
+   - Automated zero-credential failover when private sessions are unavailable, empty, or hit Instagram anti-bot challenges.
+   - Sequentially queries sessionless providers (`FEED_FALLBACK_PROVIDERS`: `anonyig`, `fastdl`) and transforms responses into standard `web_profile_info` envelopes.
 
-- Language/runtime: CommonJS Node.js, `node >= 18`.
-- Web framework: Express 4.
-- Entry point: `src/index.js`.
-- App wiring: `src/app.js`.
-- Main commands:
+4. **Third-Party Story & Highlight Scrapers (`src/services/storyFetcher.js`)**:
+   - Public sessionless story/highlight extraction (storynavigation.com, anonstories.com, i.theasmn.com).
+   - Enriches feed results with top-level `stories`, `highlights`, and detailed `highlight_details` bubbles.
+
+5. **Direct Signed Worker Hubs & GraphQL Modules**:
+   - **AnonyIG (`src/anonyig/`)**: Signed HTTP/2 worker hub (`api-wh.anonyig.com`).
+   - **FastDL (`src/fastdl/`)**: Signed HTTP/2 worker hub (`api-wh.fastdl.app`).
+   - **GraphQL (`src/graphql/`)**: Direct timeline media queries using doc_ids and pool sessions.
+
+6. **Admin Dashboard & Pool Control (`/admin`)**:
+   - Web UI for managing AES-256-GCM encrypted Instagram sessions and HTTP/HTTPS/SOCKS5 proxies.
+   - Live proxy latency testing, feed preview, story preview, and session import (supporting raw sessionid, cookie strings, or Chrome cookie export JSON arrays).
+
+7. **Audit & Telemetry**:
+   - Real-time Telegram API request/response logging middleware (`src/middleware/telegramRequestLogger.js`) with automatic secret redaction.
+   - Disk/B2 feed logging (`src/store/feedLog.js`).
+
+---
+
+## Runtime & Tooling
+
+- **Language / Runtime**: CommonJS Node.js (`node >= 18.0.0`).
+- **Web Framework**: Express 4.21.
+- **Entry Point**: `src/index.js` (bootstrapper, pool warmup, graceful shutdown).
+- **Express Wiring**: `src/app.js`.
+- **Primary Commands**:
   - `npm start` -> `node src/index.js`
   - `npm run dev` -> `nodemon src/index.js`
-  - `npm test` -> `node --test`
-  - `npm run anonyig:chunk`
-  - `npm run fastdl:chunk`
+  - `npm.cmd test` -> `node --test` (Runs built-in Node test suite)
+  - `npm.cmd run test:hover-card -- <handle>` -> Diagnostics CLI for Polaris hover card GraphQL profile resolution.
+  - `npm run anonyig:chunk` -> Fetches and mirrors AnonyIG signing chunk to disk / B2.
+  - `npm run fastdl:chunk` -> Fetches and mirrors FastDL signing chunk to disk / B2.
 
-## Current Health
+> [!NOTE]
+> On Windows PowerShell environments with restricted script execution policies (`npm.ps1` blocked), always use `npm.cmd` instead of `npm`.
 
-`npm.cmd test` was attempted on Windows.
+---
 
-Result:
+## Current Health & Validation
 
-- FastDL tests passed.
-- GraphQL test failed because dependencies are not installed in the workspace: `Cannot find module 'axios'`.
-- The plain `npm test` PowerShell command is blocked by local script execution policy because `npm.ps1` cannot be loaded. Use `npm.cmd test` on this machine.
+- **Test Suite**: Fully operational via `npm.cmd test`.
+- **Test Results** (18/18 passing):
+  - FastDL Config, Chunk Sources, VM Sandbox signer, Client methods, and Input normalizers.
+  - GraphQL Service exports.
+  - Fallback engine username normalizer and trigger conditions (`shouldFallbackForPrivateResult`, `shouldFallbackForError`).
+  - Profile resolution count checks (`hasProfileCounts`) and handle match prioritization (`profileFromFeed`).
+  - Pool store session parsers (including Chrome cookie export JSON array and cookie strings).
+- **Dependencies**: All production dependencies (`axios`, `@aws-sdk/client-s3`, `tough-cookie`, `http-cookie-agent`, `https-proxy-agent`, `archiver`, etc.) are installed and validated.
 
-Install dependencies with `npm install` before expecting the full test suite or server startup to work.
+---
 
-## Request Flow: Main Feed
+## Request Flow & Multi-Tier Resolution Pipeline
 
-Primary route definitions:
+Primary entry point: `POST /api/user-feed` or `GET /api/user-feed[/:userId]`
 
-- `src/routes/userFeed.routes.js`
-- `src/controllers/userFeed.controller.js`
-- `src/services/instagram.service.js`
-- `src/services/webParameter.js`
-- `src/utils/mapFeedToWebProfile.js`
-- `src/services/feedStoryMerge.js`
-
-Flow:
-
-1. `POST /api/user-feed`, `GET /api/user-feed`, `GET /api/user-feed/:userId`, or compatibility route `/api/v1/feed/user/:userId/username`.
-2. Controller merges params, query, and body. Body wins over query, query wins over path params.
-3. Auth/proxy source priority:
-   - `dominatorAccount`
-   - inline `authToken`/`sessionid`/`token` plus optional `proxy`
-   - encrypted round-robin session/proxy pool
-4. Optional in-memory cache is used for first-page responses when enabled/requested.
-5. `getUserFeed` builds cookies, CSRF, Bearer `IGT:2` authorization, proxy agent, and headers.
-6. Instagram private API endpoint is called:
-   - `/api/v1/feed/user/<userId>/?count=PAGE_COUNT`
-   - or `/api/v1/feed/user/<username>/username/?count=PAGE_COUNT`
-7. Feed items are mapped into `web_profile_info`.
-8. If enabled, stories/highlights are fetched by handle and attached as top-level nodes.
-9. Feed responses are logged asynchronously through `src/store/feedLog.js`.
-
-## API Route Surface
-
-Public/system:
-
-- `GET /health`
-- `GET /admin`
-- `GET /instagram-view.html`
-
-Feed:
-
-- `POST /api/user-feed`
-- `GET /api/user-feed`
-- `GET /api/user-feed/:userId`
-- `GET /api/v1/feed/user/:userId/username`
-
-Pool CRUD:
-
-- `POST /api/sessions`
-- `GET /api/sessions`
-- `DELETE /api/sessions/:id`
-- `DELETE /api/sessions`
-- `POST /api/proxies`
-- `GET /api/proxies`
-- `DELETE /api/proxies/:id`
-- `DELETE /api/proxies`
-
-Auth token:
-
-- `POST /api/auth-token`
-- `GET /api/auth-token`
-
-Stories/downloads:
-
-- `GET|POST /api/instagram/search`
-- `GET /api/instagram/search/:username`
-- `GET|POST /api/instagram/stories`
-- `GET /api/instagram/stories/:username`
-- `GET|POST /api/instagram/story`
-- `GET /api/instagram/story/:username`
-- `GET /api/instagram/highlights/:highlightId`
-- `GET /api/instagram/media?url=...`
-- `POST /api/instagram/download/zip`
-- `POST /api/instagram/download/zip/start`
-- `GET /api/instagram/download/zip/:jobId/events`
-- `GET /api/instagram/download/zip/:jobId/file`
-
-AnonyIG:
-
-- `GET|POST /api/anonyig/user`
-- `GET /api/anonyig/user/:username`
-- `GET /api/anonyig/posts/:username`
-- `GET /api/anonyig/reels/:username`
-- `GET /api/anonyig/stories/:username`
-- `GET /api/anonyig/highlights/:username`
-- `GET|POST /api/anonyig/feed`
-- `GET /api/anonyig/feed/:username`
-- `GET|POST /api/anonyig/profile`
-- `GET /api/anonyig/profile/:username`
-- `GET /api/anonyig/suggestions?query=...`
-- `GET /api/anonyig/status`
-
-FastDL:
-
-- `GET|POST /api/fastdl`
-- `GET /api/fastdl/:username`
-- `GET /api/fastdl/highlights/:highlightId`
-- `GET /api/fastdl/status`
-
-GraphQL:
-
-- `GET|POST /api/graphql`
-- `GET /api/graphql/:username`
-
-Admin route group:
-
-- Public/login/status/dashboard routes are under `/admin`.
-- Session/proxy CRUD routes under `/admin` are passcode-token gated.
-- Admin feed/story fetch routes are intentionally not token-gated because they do not expose stored secrets.
-
-## Storage And Secrets
-
-Session/proxy pool:
-
-- Store module: `src/store/poolStore.js`.
-- Backend module: `src/store/poolBackend.js`.
-- Local default: `DATA_DIR/pool.json`, with `DATA_DIR` defaulting to `./data`.
-- Remote option: Backblaze B2/S3-compatible storage when all required B2 variables are configured.
-- Secrets are encrypted per entry with AES-256-GCM through `src/utils/crypto.js`.
-- List endpoints return only masked/non-secret fields.
-- Decryption happens at request time when building cookies/proxy config.
-
-Important secret/config variables:
-
-- `ENCRYPTION_KEY`
-- `ADMIN_PASSCODE`
-- `B2_BUCKET`
-- `B2_ENDPOINT`
-- `B2_REGION`
-- `B2_KEY_ID`
-- `B2_APPLICATION_KEY`
-- `B2_POOL_KEY`
-
-## Cache And Logging
-
-Cache:
-
-- Utility: `src/utils/cache.js`.
-- Feed cache defaults to disabled unless `FEED_CACHE_DEFAULT=true` or callers request `useCache/cache=true`.
-- Bypassed by `fresh=true` or `bypassCache=true`.
-- Not used for paginated `maxId` requests.
-
-Logging:
-
-- Feed logs are written by `src/store/feedLog.js`.
-- Controlled by `FEED_LOG_ENABLED`.
-- Intended to avoid writing raw secrets.
-
-## Media Downloads
-
-Download service: `src/services/download.service.js`.
-
-Capabilities:
-
-- Single media proxy/inline preview.
-- One-shot zip streaming.
-- Background zip jobs with Server-Sent Events progress and later file download.
-
-Safety:
-
-- Media URLs are validated by `assertAllowedUrl`.
-- Only configured/allow-listed hosts are downloadable.
-- Zip item count is capped by `STORY_MAX_ZIP_ITEMS`.
-
-## Third-Party Worker Hub Modules
-
-AnonyIG module:
-
-- Directory: `src/anonyig`.
-- Uses signed HTTP/2 requests to `api-wh.anonyig.com`.
-- Signing chunk is not committed and can be loaded from disk, B2, or fetched from anonyig.com.
-- Cloud hosts may need `ANONYIG_PROXY` or `ANONYIG_USE_POOL_PROXY=true` because worker hubs can challenge datacenter IP ranges.
-
-FastDL module:
-
-- Directory: `src/fastdl`.
-- Similar signed worker-hub design for `fastdl.app`.
-- Has tests in `src/fastdl/fastdl.test.js`.
-
-## Environment Notes
-
-Local development should usually start with:
-
-```bash
-npm install
-copy .env.example .env
-npm.cmd run dev
+```
+Client Request
+      │
+      ▼
+[1. Telegram Request Logger] ──► Captures timing, redacted headers/body (if enabled)
+      │
+      ▼
+[2. Bridge Mode Evaluation] (FEED_SOURCE_MODE: bridge_then_pool | android_bridge | pool)
+      ├─► (if android_bridge or bridge_then_pool AND no maxId)
+      │      └─► FeedPilot Android Bridge (/api/bridge/feed)
+      │             ├─► SUCCESS ──► Returns mapped web_profile_info (Header: X-FeedPilot-Bridge: HIT)
+      │             └─► FAIL (retryable) ──► (if bridge_then_pool) Fall through to Pool (Header: X-FeedPilot-Bridge: FALLBACK)
+      │
+      ▼
+[3. Auth & Account Resolution]
+      ├─ Priority 1: dominatorAccount (legacy object)
+      ├─ Priority 2: inline authToken / sessionid / token + proxy / csrfToken
+      └─ Priority 3: Encrypted Session & Proxy Pool (Round-Robin)
+      │
+      ▼
+[4. In-Memory Cache Check] (feedCache)
+      └─ (if first-page request AND cache enabled AND NOT fresh/bypassCache) ──► Cache HIT
+      │
+      ▼
+[5. Instagram Private Mobile API] (getUserFeed)
+      ├─ Builds IGT:2 Bearer Auth + CSRF + CookieJar + Proxy Agent
+      ├─ Calls /api/v1/feed/user/<target>/?count=PAGE_COUNT
+      ├─ Profile Detail Enrichment:
+      │    ├─ If follow counts missing/0:
+      │    │    ├─ Polaris Hover Card GraphQL query (PolarisUserHoverCardContentV2Query)
+      │    │    ├─ Web api/v1/feed/user/<handle>/username
+      │    │    ├─ Web api/v1/users/<pk>/info/
+      │    │    └─ OpenGraph HTML scrape fallback
+      │    └─ Matches profile candidates to requested handle (prevents collab override)
+      │
+      ├─► SUCCESS ──► Merges Stories & Highlights (if requested) ──► Response Sent
+      │
+      └─► FAIL (401 / Unauthorized / Spam Block / Empty Feed):
+            │
+            ▼
+      [6. Proxy Retry with Verified Pool Proxy] (nextValidPoolProxy)
+            ├─ Checks next pool proxy with live IP-echo & Instagram reachability probe
+            ├─ If reachable: Retries getUserFeed with new proxy (annotates private_retry)
+            │
+            └─► If still failing (or no auth in pool) AND no maxId:
+                  │
+                  ▼
+            [7. Public Fallback Engine] (getFallbackFeed)
+                  ├─ Normalizes handle from input (rejects bare numeric IDs)
+                  ├─ Provider 1: AnonyIG (anonyig.getConvertedFeed)
+                  ├─ Provider 2: FastDL (fastdl.getConvertedFeed)
+                  └─ Annotates payload with fallback metadata (used, provider, failures)
+      │
+      ▼
+[8. Post-Response Tasks]
+      ├─ Asynchronous Feed Logging (src/store/feedLog.js to local disk or B2)
+      └─ Telegram Logger dispatches complete response overview
 ```
 
-On this Windows host, prefer `npm.cmd` instead of bare `npm` in PowerShell if script execution policy blocks `npm.ps1`.
+---
 
-## Things To Be Careful With
+## FeedPilot Android Device Bridge
 
-- Do not commit `.env`, `data/`, pool JSON files, feed logs, sessions, proxies, or signing chunks.
-- Keep `ENCRYPTION_KEY` stable. Changing it makes stored pool entries undecryptable.
-- Story/highlight providers are best-effort and should not fail the main feed.
-- The AnonyIG/FastDL signing chunks are operational dependencies for those route groups.
-- Some docs currently contain mojibake characters, likely from an encoding mismatch; code comments show the same issue in a few places.
-- The checked-in `context.md` references an older path (`d:/CoreProject/GetIGFeed`) even though this workspace is `D:\GetIGFeed`.
+The bridge subsystem (`src/services/feedPilotBridge.service.js`) routes requests to an external FeedPilot Android cluster running real Instagram Android app instances.
+
+### Modes (`FEED_SOURCE_MODE` or `FEEDPILOT_BRIDGE_MODE`)
+- `bridge_then_pool` (Default): Attempts the Android bridge first. If the bridge returns a retryable error (e.g., 503, 504, `NO_ACTIVE_DEVICE`, `JOB_TIMEOUT`, `DEVICE_OFFLINE`), it seamlessly falls back to the local private API / pool.
+- `android_bridge`: Strictly uses the Android bridge. If the bridge fails, returns an error without local fallback.
+- `pool`: Bypasses the bridge entirely; uses local session/proxy pool.
+
+### Response Adaptation (`src/utils/mapFeedPilotBridgeResponse.js`)
+Normalizes the Android payload into standard Instagram `data.user` (`edge_owner_to_timeline_media`, `edge_followed_by`, `edge_follow`), while adding:
+- `feedpilot_bridge`: `{ source: 'android-device', jobId, deviceId, accountUsername, durationMs }`
+- Merged `stories`, `highlights`, and `highlight_details` top-level nodes.
+
+---
+
+## Fallback Feed Pipeline (`src/services/feedFallback.service.js`)
+
+When private sessions are banned, rate-limited, challenge-gated, or pool sessions are exhausted:
+1. Validates that the target is a public handle (not bare numeric ID).
+2. Runs through `FEED_FALLBACK_PROVIDERS` (default: `anonyig,fastdl`).
+3. Formats the data into the identical `web_profile_info` structure so client applications do not need custom parsers.
+4. Appends a `fallback` metadata block indicating provider used, reason, and any preceding provider failures.
+
+---
+
+## Profile Resolution & Polaris Hover Card Diagnostics
+
+To eliminate the common issue of empty/zero follower counts or collaborator posts masking the profile:
+- **Polaris Hover Card Query**: Uses doc_id `27756568060663620` (`PolarisUserHoverCardContentV2Query`) through web GraphQL endpoints with session cookies.
+- **Requested Username Priority**: `profileFromFeed()` verifies usernames against the requested handle so collaborator posts in the feed do not hijack the profile identity.
+- **Diagnostics Script**: Run `npm.cmd run test:hover-card -- <username-or-id> [--pool | sessionfile.json]` to inspect raw hover card resolution and verify session compatibility.
+
+---
+
+## Storage, Pool Management & Credentials
+
+- **Store Module**: `src/store/poolStore.js`
+- **Backend Switcher**: `src/store/poolBackend.js`
+  - `STORAGE_BACKEND=file`: Stored in `${DATA_DIR}/pool.json` (default `./data/pool.json`).
+  - `STORAGE_BACKEND=b2`: Synchronized to Backblaze B2 bucket (stateless cloud containers).
+- **Security**:
+  - All sensitive fields (`sessionid`, `proxyPassword`, etc.) are encrypted at rest using AES-256-GCM via `src/utils/crypto.js` and `ENCRYPTION_KEY`.
+  - Admin list endpoints return masked tokens (e.g. `****1a2b`). Decryption occurs only in memory when constructing outgoing HTTP agents.
+- **Session Formats Supported**:
+  - Raw sessionid string.
+  - Semicolon-separated cookie header string (`sessionid=...; csrftoken=...; ds_user_id=...`).
+  - Chrome / browser extension cookie export JSON array (`[{ name: 'sessionid', value: '...' }, ...]`).
+  - Standard JSON object (`{ sessionid, csrftoken, dsUserId, label }`).
+
+---
+
+## Telemetry, Audit & Logging
+
+1. **Telegram API Request Logger (`src/middleware/telegramRequestLogger.js`)**:
+   - Configurable via `TELEGRAM_LOG_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID`.
+   - Captures HTTP method, URL, status code, latency, IP, redacted request headers/body, and truncated response payload.
+   - Strictly redacts passwords, session tokens, CSRF tokens, authorization headers, and cookies.
+   - Respects Telegram's 4096-character limit by splitting large payloads into chunks.
+2. **Feed Audit Logger (`src/store/feedLog.js`)**:
+   - Asynchronously dumps feed request summaries to disk or B2 for debugging and rate limit analysis.
+3. **Morgan HTTP Logger**:
+   - Standard stdout logging (`combined` in production, `dev` in development).
+
+---
+
+## Complete API Surface
+
+### Health & Admin UI
+- `GET /health` — Service liveness check.
+- `GET /admin` — Administrative web dashboard.
+- `GET /admin/status` — Real-time pool metrics and configuration summary.
+- `POST /admin/login` — Authenticates dashboard passcode and issues sliding admin token.
+- `GET /instagram-view.html` — Standalone Instagram feed and story viewer.
+
+### Feed Endpoints
+- `POST /api/user-feed` — Main feed fetcher (supports body params, auth overrides, bridge, fallbacks).
+- `GET /api/user-feed` — Query-param variant of feed fetcher.
+- `GET /api/user-feed/:userId` — Path-param variant.
+- `GET /api/v1/feed/user/:userId/username` — Instagram mobile API compatibility alias.
+
+### Session & Proxy Pool Management
+- `GET /api/sessions` — List all pool sessions (masked secrets).
+- `POST /api/sessions` — Add sessions (accepts single strings, cookie strings, Chrome JSON arrays, or objects).
+- `DELETE /api/sessions/:id` — Remove a session.
+- `DELETE /api/sessions` — Clear all sessions.
+- `GET /api/proxies` — List all proxies (masked passwords).
+- `POST /api/proxies` — Add proxies (`host:port:user:pass` or object).
+- `DELETE /api/proxies/:id` — Remove a proxy.
+- `DELETE /api/proxies` — Clear all proxies.
+- `POST /admin/proxies/:id/check` — Live connectivity and latency test for a proxy.
+
+### Stories & Media Downloads
+- `GET|POST /api/instagram/search[/:username]` — Sessionless stories & highlights lookup.
+- `GET|POST /api/instagram/stories[/:username]` — Stories only.
+- `GET|POST /api/instagram/story[/:username]` — Story alias.
+- `GET /api/instagram/highlights/:highlightId` — Individual highlight items.
+- `GET /api/instagram/media?url=...` — Proxies media asset preview (with allowlist validation).
+- `POST /api/instagram/download/zip` — Direct stream zip archive.
+- `POST /api/instagram/download/zip/start` — Starts asynchronous background zip packaging job.
+- `GET /api/instagram/download/zip/:jobId/events` — Server-Sent Events (SSE) progress stream for zip jobs.
+- `GET /api/instagram/download/zip/:jobId/file` — Downloads generated zip archive.
+
+### Third-Party Worker Hubs & Direct GraphQL
+- `GET|POST /api/anonyig/user[/:username]` — AnonyIG user profile.
+- `GET|POST /api/anonyig/feed[/:username]` — AnonyIG consolidated feed.
+- `GET /api/anonyig/posts[/:username]` — AnonyIG timeline posts.
+- `GET /api/anonyig/reels[/:username]` — AnonyIG reels.
+- `GET /api/anonyig/stories[/:username]` — AnonyIG stories.
+- `GET /api/anonyig/highlights[/:username]` — AnonyIG highlights.
+- `GET /api/anonyig/status` — AnonyIG worker hub health.
+- `GET|POST /api/fastdl[/:username]` — FastDL single media or profile feed resolution.
+- `GET /api/fastdl/highlights/:highlightId` — FastDL highlight detail.
+- `GET /api/fastdl/status` — FastDL worker hub health.
+- `GET|POST /api/graphql[/:username]` — Direct Instagram timeline query using pool session.
+
+---
+
+## Configuration Reference (`.env`)
+
+| Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `PORT` | Number | `3000` | HTTP port |
+| `NODE_ENV` | String | `development` | `development` or `production` |
+| `DATA_DIR` | String | `./data` | Local directory for logs, token cache, and file pool |
+| `ENCRYPTION_KEY` | String | *Required* | 32-byte AES-256-GCM encryption key for secrets |
+| `ADMIN_PASSCODE` | String | *Required* | Passcode to access `/admin` dashboard |
+| `ADMIN_IDLE_MS` | Number | `30000` | Dashboard session inactivity timeout |
+| `FEED_SOURCE_MODE` | String | `bridge_then_pool`| `bridge_then_pool`, `android_bridge`, or `pool` |
+| `FEEDPILOT_BRIDGE_URL` | String | Empty | FeedPilot Android bridge base URL |
+| `FEEDPILOT_BRIDGE_KEY` | String | Empty | Bridge authentication key (`X-Bridge-Key`) |
+| `FEEDPILOT_BRIDGE_TIMEOUT_MS` | Number | `35000` | Timeout for Android device response |
+| `FEEDPILOT_BRIDGE_FALLBACK` | Boolean| `true` | Fallback to pool if Android bridge fails |
+| `FEED_FALLBACK_PROVIDERS` | String | `anonyig,fastdl` | Comma-separated public fallback order |
+| `FEED_CACHE_DEFAULT` | Boolean| `false` | Enable in-memory TTL caching for 1st-page feeds |
+| `CACHE_TTL_MS` | Number | `30000` | Feed memory cache TTL |
+| `FEED_INCLUDE_STORIES` | Boolean| `true` | Auto-merge stories/highlights in feed responses |
+| `FEED_INCLUDE_HIGHLIGHT_DETAILS`| Boolean | `true` | Auto-expand highlight media bubbles |
+| `FEED_HIGHLIGHT_DETAIL_LIMIT` | Number | `0` | Max highlights to expand (0 = all) |
+| `TELEGRAM_LOG_ENABLED` | Boolean| `false` | Enable Telegram audit logging |
+| `TELEGRAM_BOT_TOKEN` | String | Empty | Telegram Bot API token |
+| `TELEGRAM_CHAT_ID` | String | Empty | Destination chat/channel ID |
+| `TELEGRAM_LOG_SCOPE` | String | `api` | `api` (/api/* only) or `all` |
+| `TELEGRAM_LOG_MAX_BODY` | Number | `1800` | Max characters per request/response body |
+| `STORAGE_BACKEND` | String | `file` | `file` or `b2` |
+| `B2_BUCKET` / `B2_KEY_ID` / `B2_APPLICATION_KEY` / `B2_ENDPOINT` | String | Empty | Backblaze B2 credentials for cloud persistence |
+| `ANONYIG_USE_POOL_PROXY` / `FASTDL_USE_POOL_PROXY` | Boolean| `false` | Tunnel worker hub requests via pool proxies |
+
+---
+
+## Operational Notes & Developer Gotchas
+
+1. **PowerShell Script Policy**:
+   - Use `npm.cmd` on Windows when running scripts to bypass PowerShell execution restriction errors (`npm.cmd test`, `npm.cmd run dev`).
+2. **Handle vs Numeric ID**:
+   - Private API can accept numeric user IDs or handles.
+   - Public fallbacks (`anonyig`, `fastdl`) and hover-card resolvers **require** a valid Instagram username handle (`normalizeUsername` rejects purely numeric IDs for fallbacks).
+3. **Secret Immutability**:
+   - Never change `ENCRYPTION_KEY` in production once pool data has been written; existing entries will fail to decrypt.
+4. **Collab Post Protection**:
+   - Instagram feed queries often return posts by other users (collaborations/tags). The profile enrichment engine specifically matches user records against the requested handle so external accounts do not overwrite the profile.
+5. **Worker Hub Signing Chunks**:
+   - The signing chunks for AnonyIG and FastDL are dynamic upstream JS bundles. In environments blocking these hubs (HTTP 451), run `npm run anonyig:chunk` or `npm run fastdl:chunk` in an unblocked environment and mirror the chunk to B2.
