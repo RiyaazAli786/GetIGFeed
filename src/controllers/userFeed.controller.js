@@ -118,10 +118,13 @@ async function postUserFeed(req, res, next) {
       minTimestamp = null,
       isNewBrowser = false,
       includeStories,
+      includeStory,
       include_stories,
+      include_story,
       includeStoriesAndHighlights,
       includeStoryHighlights,
       stories,
+      story,
       includeHighlightDetails,
       highlightDetailLimit,
       fresh,
@@ -130,12 +133,35 @@ async function postUserFeed(req, res, next) {
       cache,
     } = src;
     const feedMaxId = maxId ?? max_id ?? null;
-    const resolvedIncludeStories =
+
+    // Only send includeStories = true when URL parameter or request explicitly sets it to true
+    // (e.g. ?includeStory=true, ?includeStories=true, ?include_story=true, ?story=true, ?stories=true, ?includeStory=1)
+    const storyParamRaw =
+      req.query?.includeStory ??
+      req.query?.includeStories ??
+      req.query?.include_story ??
+      req.query?.include_stories ??
+      req.query?.story ??
+      req.query?.stories ??
+      req.query?.includeStoriesAndHighlights ??
+      req.query?.includeStoryHighlights ??
+      req.params?.includeStory ??
+      req.params?.includeStories ??
+      includeStory ??
       includeStories ??
+      include_story ??
       include_stories ??
+      story ??
+      stories ??
       includeStoriesAndHighlights ??
-      includeStoryHighlights ??
-      stories;
+      includeStoryHighlights;
+
+    const shouldIncludeStories =
+      storyParamRaw === true ||
+      String(storyParamRaw).trim().toLowerCase() === 'true' ||
+      String(storyParamRaw).trim() === '1';
+
+    const resolvedIncludeStories = shouldIncludeStories;
 
     if (!userId) {
       return res
@@ -151,7 +177,7 @@ async function postUserFeed(req, res, next) {
         userId,
         limit: Number(src.count || src.limit || 12),
         maxId: feedMaxId,
-        includeStories: resolvedIncludeStories === true || resolvedIncludeStories === 'true',
+        includeStories: shouldIncludeStories,
       });
 
       if (bridgeResult.ok) {

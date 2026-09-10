@@ -91,7 +91,7 @@ async function fetchViaFeedPilotBridge(input) {
         userId: input.userId,
         limit: input.limit,
         maxId: input.maxId,
-        includeStories: input.includeStories,
+        includeStories: input.includeStories === true,
         client: 'GetIGFeed',
       }),
       signal: controller.signal,
