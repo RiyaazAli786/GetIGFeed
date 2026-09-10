@@ -92,3 +92,42 @@ test('fetchViaFeedPilotBridge sends includeStories only as strict boolean', asyn
     global.fetch = originalFetch;
   }
 });
+
+test('fetchViaFeedPilotBridge treats IG_EMPTY_FEED and 502 as retryable so pool/fallback triggers', async () => {
+  const prevMode = process.env.FEED_SOURCE_MODE;
+  const prevUrl = process.env.FEEDPILOT_BRIDGE_URL;
+  const prevKey = process.env.FEEDPILOT_BRIDGE_KEY;
+  const originalFetch = global.fetch;
+
+  try {
+    process.env.FEED_SOURCE_MODE = 'bridge_then_pool';
+    process.env.FEEDPILOT_BRIDGE_URL = 'http://localhost:5000';
+    process.env.FEEDPILOT_BRIDGE_KEY = 'test-key';
+
+    global.fetch = async () => ({
+      ok: false,
+      status: 502,
+      json: async () => ({
+        success: false,
+        code: 'IG_EMPTY_FEED',
+        message: 'Instagram returned no feed data.',
+      }),
+    });
+
+    const result = await fetchViaFeedPilotBridge({
+      userId: 'testuser',
+      includeStories: false,
+    });
+
+    assert.equal(result.used, true);
+    assert.equal(result.ok, false);
+    assert.equal(result.retryable, true);
+    assert.equal(result.code, 'IG_EMPTY_FEED');
+  } finally {
+    process.env.FEED_SOURCE_MODE = prevMode;
+    process.env.FEEDPILOT_BRIDGE_URL = prevUrl;
+    process.env.FEEDPILOT_BRIDGE_KEY = prevKey;
+    global.fetch = originalFetch;
+  }
+});
+

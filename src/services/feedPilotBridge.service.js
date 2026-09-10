@@ -47,15 +47,23 @@ function getBridgeConfig() {
 
 function isRetryableBridgeError(code, status) {
   return (
+    status === 502 ||
     status === 503 ||
     status === 504 ||
     [
       'NO_ACTIVE_DEVICE',
       'NO_ACTIVE_SESSION',
+      'NO_LOCAL_SESSION',
       'JOB_TIMEOUT',
       'DEVICE_OFFLINE',
       'TEMPORARY_NETWORK_ERROR',
       'NETWORK_TIMEOUT',
+      'IG_EMPTY_FEED',
+      'IG_SESSION_EXPIRED',
+      'IG_CHECKPOINT_REQUIRED',
+      'IG_CAPTCHA_REQUIRED',
+      'IG_RATE_LIMITED',
+      'IG_UNKNOWN_ERROR',
     ].includes(code)
   );
 }

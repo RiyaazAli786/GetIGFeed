@@ -171,10 +171,19 @@ async function postUserFeed(req, res, next) {
 
     const feedSourceMode = bridgeMode();
     if (bridgeEnabled() && !feedMaxId) {
+      const isNumericId = /^\d+$/.test(String(userId).trim());
+      const resolvedUsername =
+        src.username ||
+        src.handle ||
+        (!isNumericId ? String(userId).replace(/^@/, '') : undefined);
+      const resolvedUserId = isNumericId
+        ? String(userId).trim()
+        : (src.numericUserId || src.userIdNumeric || undefined);
+
       const bridgeResult = await fetchViaFeedPilotBridge({
         requestId: req.headers['x-request-id'] || undefined,
-        username: src.username || src.handle || undefined,
-        userId,
+        username: resolvedUsername,
+        userId: resolvedUserId,
         limit: Number(src.count || src.limit || 12),
         maxId: feedMaxId,
         includeStories: shouldIncludeStories,
