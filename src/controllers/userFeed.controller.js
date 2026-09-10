@@ -9,6 +9,12 @@ const {
 const { checkProxy } = require('../services/proxyCheck');
 const poolStore = require('../store/poolStore');
 const { logFeedAsync } = require('../store/feedLog');
+const {
+  bridgeEnabled,
+  fallbackEnabled,
+  fetchViaFeedPilotBridge,
+} = require('../services/feedPilotBridge.service');
+const { mapFeedPilotBridgeResponse } = require('../utils/mapFeedPilotBridgeResponse');
 
 const FEED_CACHE_DEFAULT =
   String(process.env.FEED_CACHE_DEFAULT || 'false').toLowerCase() === 'true';
@@ -134,6 +140,47 @@ async function postUserFeed(req, res, next) {
       return res
         .status(400)
         .json({ success: false, error: 'userId is required.' });
+    }
+
+    if (bridgeEnabled() && !feedMaxId) {
+      const bridgeResult = await fetchViaFeedPilotBridge({
+        requestId: req.headers['x-request-id'] || undefined,
+        username: src.username || src.handle || undefined,
+        userId,
+        limit: Number(src.count || src.limit || 12),
+        maxId: feedMaxId,
+        includeStories: resolvedIncludeStories === true || resolvedIncludeStories === 'true',
+      });
+
+      if (bridgeResult.ok) {
+        const mappedBridgeResult = mapFeedPilotBridgeResponse(
+          bridgeResult.data,
+          bridgeResult.bridge
+        );
+        res.setHeader('X-FeedPilot-Bridge', 'HIT');
+        logFeedAsync({
+          userId,
+          request: {
+            maxId: feedMaxId,
+            source: 'feedpilot-bridge',
+          },
+          result: mappedBridgeResult,
+        });
+        return res.status(200).json(mappedBridgeResult);
+      }
+
+      if (bridgeResult.used && (!bridgeResult.retryable || !fallbackEnabled())) {
+        return res.status(bridgeResult.status || 502).json({
+          success: false,
+          error: bridgeResult.message,
+          code: bridgeResult.code,
+          bridge: bridgeResult.bridge,
+        });
+      }
+
+      if (bridgeResult.used) {
+        res.setHeader('X-FeedPilot-Bridge', 'FALLBACK');
+      }
     }
 
     // Decide the account to use, in priority order. Only treat dominatorAccount
