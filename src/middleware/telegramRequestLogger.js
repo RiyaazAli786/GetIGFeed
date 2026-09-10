@@ -21,8 +21,24 @@ const SECRET_KEYS = [
   'proxyPassword',
 ];
 
-function enabled() {
-  return String(process.env.TELEGRAM_LOG_ENABLED || 'false').toLowerCase() === 'true';
+const { formatFeedResolutionText } = require('../utils/feedResolution');
+
+function isFeedRoute(path) {
+  if (!path) return false;
+  return (
+    path === '/api/user-feed' ||
+    path.startsWith('/api/user-feed/') ||
+    path === '/admin/user-feed' ||
+    path.startsWith('/admin/user-feed/') ||
+    path.startsWith('/api/v1/feed/user/')
+  );
+}
+
+function enabled(isFeed = false) {
+  const allEnabled = String(process.env.TELEGRAM_LOG_ENABLED || 'false').toLowerCase() === 'true';
+  const feedEnabled = String(process.env.TELEGRAM_FEED_LOG_ENABLED || 'false').toLowerCase() === 'true';
+  if (isFeed) return allEnabled || feedEnabled;
+  return allEnabled;
 }
 
 function maxBody() {
@@ -33,6 +49,7 @@ function maxBody() {
 function shouldLogPath(path) {
   const mode = String(process.env.TELEGRAM_LOG_SCOPE || 'api').toLowerCase();
   if (mode === 'all') return true;
+  if (isFeedRoute(path)) return true;
   return path === '/api' || path.startsWith('/api/');
 }
 
@@ -97,8 +114,36 @@ async function sendTelegram(message) {
   }
 }
 
+function formatTelegramMessage({
+  statusCode,
+  method,
+  url,
+  durationMs,
+  feedResolution = null,
+  requestInfo,
+  responseBody,
+}) {
+  const sections = [
+    `GetIGFeed API ${statusCode} ${method} ${url}`,
+    `Duration: ${durationMs}ms`,
+  ];
+
+  if (feedResolution) {
+    const feedResolutionBlock = formatFeedResolutionText(feedResolution);
+    if (feedResolutionBlock) {
+      sections.push(feedResolutionBlock);
+    }
+  }
+
+  sections.push(textBlock('Request', requestInfo));
+  sections.push(textBlock('Response', responseBody));
+
+  return sections.join('\n\n');
+}
+
 function telegramRequestLogger(req, res, next) {
-  if (!enabled() || !shouldLogPath(req.path)) return next();
+  const isFeed = isFeedRoute(req.path);
+  if (!enabled(isFeed) || !shouldLogPath(req.path)) return next();
 
   const startedAt = Date.now();
   const chunks = [];
@@ -139,12 +184,15 @@ function telegramRequestLogger(req, res, next) {
       }),
     };
 
-    const message = [
-      `GetIGFeed API ${res.statusCode} ${req.method} ${req.originalUrl || req.url}`,
-      `Duration: ${durationMs}ms`,
-      textBlock('Request', requestInfo),
-      textBlock('Response', responseBody),
-    ].join('\n\n');
+    const message = formatTelegramMessage({
+      statusCode: res.statusCode,
+      method: req.method,
+      url: req.originalUrl || req.url,
+      durationMs,
+      feedResolution: res.locals?.feedResolution,
+      requestInfo,
+      responseBody,
+    });
 
     sendTelegram(message);
   });
@@ -152,4 +200,10 @@ function telegramRequestLogger(req, res, next) {
   next();
 }
 
-module.exports = { telegramRequestLogger };
+module.exports = {
+  telegramRequestLogger,
+  formatTelegramMessage,
+  sendTelegram,
+  isFeedRoute,
+  shouldLogPath,
+};

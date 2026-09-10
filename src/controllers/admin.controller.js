@@ -9,6 +9,7 @@ const storyService = require('../services/instagramStory.service');
 const { flag, detailsById } = require('../services/feedStoryMerge');
 const { checkProxy } = require('../services/proxyCheck');
 const { logFeed } = require('../store/feedLog');
+const { setFeedResolution } = require('../utils/feedResolution');
 
 /**
  * Admin dashboard endpoints: a passcode gate plus full CRUD over the encrypted
@@ -110,6 +111,10 @@ async function fetchUserFeed(req, res, next) {
       account = poolStore.buildAccount({ authToken: inlineAuth, csrfToken, proxy });
     }
     if (!account && poolStore.listSessions().length === 0) {
+      setFeedResolution(res, {
+        resolvedFrom: 'Failed (No auth)',
+        error: 'No auth available — add a session, or provide an authToken.',
+      });
       return res.status(400).json({
         success: false,
         error: 'No auth available — add a session, or provide an authToken.',
@@ -125,10 +130,21 @@ async function fetchUserFeed(req, res, next) {
     const user = result?.data?.user || {};
     const edges = user?.edge_owner_to_timeline_media?.edges || [];
 
-    logFeed({
+    const logFile = logFeed({
       userId,
       request: { source: inlineAuth || proxy ? 'inline' : 'pool', via: 'admin' },
       result,
+    });
+
+    setFeedResolution(res, {
+      resolvedFrom: 'Instagram Private API',
+      resolvedPath: `/api/v1/feed/user/${encodeURIComponent(userId)}/?count=12`,
+      authSource: inlineAuth || proxy ? 'inline' : 'pool',
+      proxy: proxy ? 'custom' : 'direct / pool',
+      logFile: logFile || undefined,
+      details: {
+        via: 'admin',
+      },
     });
 
     return res.json({
@@ -145,6 +161,10 @@ async function fetchUserFeed(req, res, next) {
       result,
     });
   } catch (err) {
+    setFeedResolution(res, {
+      resolvedFrom: 'Failed (Error)',
+      error: err.message,
+    });
     return next(err);
   }
 }

@@ -8,7 +8,8 @@ const {
 } = require('../services/feedFallback.service');
 const { checkProxy } = require('../services/proxyCheck');
 const poolStore = require('../store/poolStore');
-const { logFeedAsync } = require('../store/feedLog');
+const { logFeed, logFeedAsync } = require('../store/feedLog');
+const { setFeedResolution } = require('../utils/feedResolution');
 const {
   bridgeMode,
   bridgeEnabled,
@@ -195,7 +196,7 @@ async function postUserFeed(req, res, next) {
           bridgeResult.bridge
         );
         res.setHeader('X-FeedPilot-Bridge', 'HIT');
-        logFeedAsync({
+        const logFile = logFeed({
           userId,
           request: {
             maxId: feedMaxId,
@@ -203,10 +204,29 @@ async function postUserFeed(req, res, next) {
           },
           result: mappedBridgeResult,
         });
+        const bridgeEndpoint =
+          bridgeResult.bridge?.endpoint ||
+          (process.env.FEEDPILOT_BRIDGE_URL
+            ? `${process.env.FEEDPILOT_BRIDGE_URL.replace(/\/+$/, '')}/v1/feed/user`
+            : 'feedpilot-bridge');
+        setFeedResolution(res, {
+          resolvedFrom: 'FeedPilot Bridge',
+          resolvedPath: bridgeEndpoint,
+          proxy: 'bridge-device',
+          logFile: logFile || undefined,
+          details: {
+            device: bridgeResult.bridge?.device || 'unknown',
+          },
+        });
         return res.status(200).json(mappedBridgeResult);
       }
 
       if (bridgeResult.used && (!bridgeResult.retryable || !fallbackEnabled())) {
+        setFeedResolution(res, {
+          resolvedFrom: 'FeedPilot Bridge (Failed)',
+          resolvedPath: bridgeResult.bridge?.endpoint || 'feedpilot-bridge',
+          error: bridgeResult.message,
+        });
         return res.status(bridgeResult.status || 502).json({
           success: false,
           error: bridgeResult.message,
@@ -266,6 +286,12 @@ async function postUserFeed(req, res, next) {
       const cached = feedCache.get(cacheKey);
       if (cached) {
         res.setHeader('X-Cache', 'HIT');
+        setFeedResolution(res, {
+          resolvedFrom: 'Cache (Memory)',
+          resolvedPath: `memory-cache://${cacheKey}`,
+          source: 'cache',
+          proxy: 'none (in-memory cache)',
+        });
         return res.status(200).json(cached);
       }
     }
@@ -350,6 +376,10 @@ async function postUserFeed(req, res, next) {
     } else if (privateFeedError) {
       throw privateFeedError;
     } else if (noAuthAvailable) {
+      setFeedResolution(res, {
+        resolvedFrom: 'Failed (No auth)',
+        error: 'No auth provided. Send authToken or add sessions via POST /api/sessions.',
+      });
       return res.status(400).json({
         success: false,
         error:
@@ -369,7 +399,7 @@ async function postUserFeed(req, res, next) {
 
     // Log every call to its own JSON file (no secrets — only whether they
     // were supplied and where auth was sourced from).
-    logFeedAsync({
+    const logFile = logFeed({
       userId,
       request: {
         maxId: feedMaxId,
@@ -387,9 +417,54 @@ async function postUserFeed(req, res, next) {
       result,
     });
 
+    const isNumericId = /^\d+$/.test(String(userId).trim());
+    const feedTarget = !isNumericId
+      ? `${encodeURIComponent(String(userId).replace(/^@/, ''))}/username`
+      : encodeURIComponent(userId);
+    const feedPath = `/api/v1/feed/user/${feedTarget}/?count=12`;
+
+    if (result?.fallback?.used) {
+      const provider = result.fallback.provider || 'fallback';
+      const hubUrl =
+        provider === 'fastdl'
+          ? (process.env.FASTDL_WORKER_HUB || 'https://api-wh.fastdl.app')
+          : (process.env.ANONYIG_WORKER_HUB || 'https://api-wh.anonyig.com');
+      const targetUser = !isNumericId ? String(userId).replace(/^@/, '') : userId;
+      setFeedResolution(res, {
+        resolvedFrom: `Fallback Provider (${provider})`,
+        resolvedPath: `${hubUrl}/api/v1/user/${encodeURIComponent(targetUser)}`,
+        provider,
+        logFile: logFile || undefined,
+        details: {
+          reason: result.fallback.reason || undefined,
+        },
+      });
+    } else if (result?.private_retry?.used) {
+      setFeedResolution(res, {
+        resolvedFrom: 'Instagram Private API (Proxy Retry)',
+        resolvedPath: feedPath,
+        authSource: dominatorAccount ? 'dominatorAccount' : (inlineAuth || proxy ? 'inline' : 'pool'),
+        proxy: result.private_retry.proxy?.exitIp || 'pool-proxy',
+        logFile: logFile || undefined,
+      });
+    } else {
+      const authSource = dominatorAccount ? 'dominatorAccount' : (inlineAuth || proxy ? 'inline' : 'pool');
+      setFeedResolution(res, {
+        resolvedFrom: 'Instagram Private API',
+        resolvedPath: feedPath,
+        authSource,
+        proxy: initialHadProxy ? 'provided' : 'direct / pool',
+        logFile: logFile || undefined,
+      });
+    }
+
     // 200 when we got posts, 502 when the upstream fetch yielded nothing.
     return res.status(ok ? 200 : 502).json(result);
   } catch (err) {
+    setFeedResolution(res, {
+      resolvedFrom: 'Failed (Error)',
+      error: err.message,
+    });
     return next(err);
   }
 }
