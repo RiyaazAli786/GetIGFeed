@@ -17,6 +17,8 @@ const PROVIDERS = {
   anonyig: (username, opts) => anonyig.getConvertedFeed(username, opts),
   fastdl: (username, opts) => fastdl.getConvertedFeed(username, opts),
 };
+const WORKER_PROVIDERS = ['anonyig', 'fastdl'];
+let workerProviderCursor = 0;
 
 function normalizeUsername(value) {
   const raw = String(value || '').trim();
@@ -41,6 +43,22 @@ function providerList(value = process.env.FEED_FALLBACK_PROVIDERS) {
     .map((name) => name.trim().toLowerCase())
     .filter(Boolean);
   return names.filter((name, index) => PROVIDERS[name] && names.indexOf(name) === index);
+}
+
+function orderedProviders(value = process.env.FEED_FALLBACK_PROVIDERS) {
+  const providers = providerList(value);
+  const nonWorkers = providers.filter((provider) => !WORKER_PROVIDERS.includes(provider));
+  const workers = WORKER_PROVIDERS.filter((provider) => providers.includes(provider));
+
+  if (workers.length < 2) return providers;
+
+  const firstWorker = workerProviderCursor % workers.length;
+  workerProviderCursor = (workerProviderCursor + 1) % workers.length;
+  return [
+    ...nonWorkers,
+    ...workers.slice(firstWorker),
+    ...workers.slice(0, firstWorker),
+  ];
 }
 
 function edgesOf(result) {
@@ -99,7 +117,7 @@ async function getFallbackFeed(userId, opts = {}) {
   }
 
   const failures = [];
-  for (const provider of providerList(opts.providers)) {
+  for (const provider of orderedProviders(opts.providers)) {
     try {
       const attemptOptions = providerOptions(provider, opts);
       const result = await PROVIDERS[provider](username, attemptOptions);
@@ -143,4 +161,5 @@ module.exports = {
   shouldFallbackForError,
   normalizeUsername,
   providerList,
+  orderedProviders,
 };

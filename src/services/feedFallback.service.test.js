@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const {
   normalizeUsername,
+  orderedProviders,
   providerList,
   shouldFallbackForError,
   shouldFallbackForPrivateResult,
@@ -21,6 +22,11 @@ test('normalizeUsername rejects numeric ids because public fallbacks need handle
 
 test('providerList defaults to graphql, anonyig, then fastdl', () => {
   assert.deepEqual(providerList(), ['graphql', 'anonyig', 'fastdl']);
+});
+
+test('orderedProviders alternates worker fallbacks after graphql', () => {
+  assert.deepEqual(orderedProviders(), ['graphql', 'anonyig', 'fastdl']);
+  assert.deepEqual(orderedProviders(), ['graphql', 'fastdl', 'anonyig']);
 });
 
 test('shouldFallbackForPrivateResult only triggers on empty 401-like failures', () => {
