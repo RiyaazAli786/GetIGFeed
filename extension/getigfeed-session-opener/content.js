@@ -28,7 +28,9 @@
           type: 'GETIGFEED_EXTENSION_ERROR',
           error: response.error || 'Failed to set cookies.',
         }, window.location.origin);
+        return;
       }
+      console.log('[GetIGFeed Session Opener]', response || { success: true });
     });
   });
 })();
