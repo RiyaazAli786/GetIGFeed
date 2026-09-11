@@ -35,7 +35,7 @@ The first `/api/anonyig/*` call on a fresh instance takes about a second longer
 than the rest: it downloads the signing chunk before it can sign anything.
 
 Then open `https://<your-service>.onrender.com/admin`, enter your passcode, and
-manage sessions/proxies. The dashboard auto-locks after 30s of inactivity.
+manage sessions/proxies. The dashboard auto-locks after 5 minutes of inactivity.
 
 ## 4. Publish the anonyig signing chunk
 
@@ -160,7 +160,7 @@ performance, change `plan: free` to `plan: starter` in [`render.yaml`](render.ya
 | `DATA_DIR` | optional | runtime state — csrf token, feed logs, anonyig chunk. Defaults to `./data`; the Blueprint leaves it unset (no disk is mounted, and the pool lives in B2). Set it to a disk mount point if you add one. |
 | `ENCRYPTION_KEY` | Render (generated) | AES-256-GCM key for the pool |
 | `ADMIN_PASSCODE` | **you, at deploy** | unlocks the `/admin` dashboard |
-| `ADMIN_IDLE_MS` | blueprint | dashboard auto-lock window (default `30000`) |
+| `ADMIN_IDLE_MS` | blueprint | dashboard auto-lock window (default `300000`) |
 | `FEED_PAGE_COUNT`, `CSRF_MAX_USES` | blueprint | feed tuning |
 | `FEED_INCLUDE_STORIES`, `FEED_INCLUDE_HIGHLIGHT_DETAILS` | blueprint | merge stories/highlights into the feed response |
 | `FEED_HIGHLIGHT_DETAIL_LIMIT`, `FEED_HIGHLIGHT_DETAIL_CONCURRENCY` | blueprint | cap the per-highlight media lookups |

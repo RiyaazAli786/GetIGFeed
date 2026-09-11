@@ -188,7 +188,7 @@
   <header class="bar">
     <h1>🗂️ Session &amp; Proxy Pool</h1>
     <div class="bar-right">
-      <span class="lock-timer muted">Auto-lock in <b id="countdown">30</b>s</span>
+      <span class="lock-timer muted">Auto-lock in <b id="countdown">300</b>s</span>
       <button class="btn btn-sm" id="lockNow">Lock now</button>
     </div>
   </header>
@@ -391,7 +391,7 @@
 
   // ---- State ----
   var token = null;          // also stored in localStorage for cross-tab sharing
-  var idleMs = 30000;        // overwritten from /admin/status
+  var idleMs = 300000;       // overwritten from /admin/status
   var deadline = 0;          // epoch ms when auto-lock fires
   var tickTimer = null;
   var currentTab = 'sessions';
@@ -458,7 +458,7 @@
     toastTimer = setTimeout(function () { t.className = ''; }, 2600);
   }
 
-  // ---- Auto-lock (30s inactivity) ----
+  // ---- Auto-lock (5 minutes inactivity) ----
   function resetIdle() {
     if (!token) return;
     deadline = Date.now() + idleMs;
