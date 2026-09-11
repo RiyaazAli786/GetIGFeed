@@ -15,6 +15,7 @@
     #instagram {
       width: 100%;
       height: 100vh;
+      border: 0;
       display: none;
     }
     .loading {
@@ -79,7 +80,7 @@
     </div>
   </div>
 
-  <div id="instagram"></div>
+  <iframe id="instagram" title="Instagram"></iframe>
 
   <script>
     (function () {
@@ -154,7 +155,7 @@
         .then(html => {
           document.getElementById('loading').style.display = 'none';
           const ig = document.getElementById('instagram');
-          ig.innerHTML = html;
+          ig.srcdoc = html;
           ig.style.display = 'block';
         })
         .catch(err => {

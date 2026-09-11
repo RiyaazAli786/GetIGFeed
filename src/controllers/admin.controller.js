@@ -44,6 +44,16 @@ function serveInstagramView(req, res) {
   res.sendFile(path.join(__dirname, '..', 'public', 'instagram-view.html'));
 }
 
+function prepareInstagramHtml(html) {
+  const base = '<base href="https://www.instagram.com/"><meta name="referrer" content="no-referrer">';
+  if (typeof html !== 'string') return html;
+  if (/<base\s/i.test(html)) return html;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head([^>]*)>/i, `<head$1>${base}`);
+  }
+  return `${base}${html}`;
+}
+
 /** GET /admin/status — is the dashboard configured? (no auth) */
 function status(req, res) {
   res.json({
@@ -599,9 +609,11 @@ async function proxyInstagram(req, res, next) {
       console.log('[Instagram proxy] Success - status', response.status);
       console.log('[Instagram proxy] Cookies used:', cookieArray.map(c => c.name).join(', '));
       
-      // Forward response to client
+      // Forward response to client. The viewer renders this as an iframe
+      // srcdoc, so relative Instagram asset URLs need an explicit base.
       res.set('Content-Type', response.headers['content-type'] || 'text/html; charset=utf-8');
-      res.send(response.data);
+      res.set('Referrer-Policy', 'no-referrer');
+      res.send(prepareInstagramHtml(response.data));
     } catch (err) {
       console.error('[Instagram proxy error]', {
         message: err.message,
