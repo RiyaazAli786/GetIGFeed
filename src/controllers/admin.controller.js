@@ -54,6 +54,60 @@ function prepareInstagramHtml(html) {
   return `${base}${html}`;
 }
 
+function instagramCookieArrayFromSecret(secret) {
+  let cookieArray = secret.cookies || [];
+  if (!Array.isArray(cookieArray) || cookieArray.length === 0) {
+    cookieArray = [];
+    if (secret.sessionid) {
+      cookieArray.push({ name: 'sessionid', value: secret.sessionid });
+    }
+    if (secret.csrftoken) {
+      cookieArray.push({ name: 'csrftoken', value: secret.csrftoken });
+    }
+    if (secret.dsUserId) {
+      cookieArray.push({ name: 'ds_user_id', value: secret.dsUserId });
+    }
+    if (secret.mid) {
+      cookieArray.push({ name: 'mid', value: secret.mid });
+    }
+  }
+
+  return cookieArray
+    .filter((cookie) => cookie && cookie.name && cookie.value !== undefined && cookie.value !== null)
+    .map((cookie) => ({
+      ...cookie,
+      name: String(cookie.name),
+      value: String(cookie.value),
+      domain: cookie.domain || '.instagram.com',
+      path: cookie.path || '/',
+      secure: cookie.secure !== false,
+    }));
+}
+
+function getSessionSecretForRequest(req, res) {
+  const sessionId = req.params?.id || req.query?.sessionId;
+  if (!sessionId) {
+    res.status(400).json({ success: false, error: 'sessionId is required.' });
+    return null;
+  }
+
+  let secret;
+  try {
+    secret = poolStore.getSessionSecret(sessionId);
+  } catch (e) {
+    if (e.code === 'DECRYPT_FAILED') {
+      res.status(500).json({ success: false, error: e.message });
+      return null;
+    }
+    throw e;
+  }
+  if (!secret) {
+    res.status(404).json({ success: false, error: 'Session not found.' });
+    return null;
+  }
+  return secret;
+}
+
 /** GET /admin/status — is the dashboard configured? (no auth) */
 function status(req, res) {
   res.json({
@@ -282,6 +336,21 @@ function listSessions(req, res, next) {
   }
 }
 
+function getSessionCookies(req, res, next) {
+  try {
+    const secret = getSessionSecretForRequest(req, res);
+    if (!secret) return undefined;
+    return res.json({
+      success: true,
+      sessionId: secret.id,
+      dsUserId: secret.dsUserId || null,
+      cookies: instagramCookieArrayFromSecret(secret),
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 async function addSessions(req, res, next) {
   try {
     const items = itemsFrom(req.body, 'sessions');
@@ -407,42 +476,9 @@ async function deleteProxy(req, res, next) {
  */
 async function checkInstagramSession(req, res, next) {
   try {
-    const sessionId = req.query?.sessionId;
-    if (!sessionId) {
-      return res.status(400).json({ success: false, error: 'sessionId is required.' });
-    }
-
-    // Retrieve the session from the pool
-    let secret;
-    try {
-      secret = poolStore.getSessionSecret(sessionId);
-    } catch (e) {
-      if (e.code === 'DECRYPT_FAILED') {
-        return res.status(500).json({ success: false, error: e.message });
-      }
-      throw e;
-    }
-    if (!secret) {
-      return res.status(404).json({ success: false, error: 'Session not found.' });
-    }
-
-    // Build cookies array from the session
-    let cookieArray = secret.cookies || [];
-    if (!Array.isArray(cookieArray) || cookieArray.length === 0) {
-      cookieArray = [];
-      if (secret.sessionid) {
-        cookieArray.push({ name: 'sessionid', value: secret.sessionid });
-      }
-      if (secret.csrftoken) {
-        cookieArray.push({ name: 'csrftoken', value: secret.csrftoken });
-      }
-      if (secret.dsUserId) {
-        cookieArray.push({ name: 'ds_user_id', value: secret.dsUserId });
-      }
-      if (secret.mid) {
-        cookieArray.push({ name: 'mid', value: secret.mid });
-      }
-    }
+    const secret = getSessionSecretForRequest(req, res);
+    if (!secret) return undefined;
+    const cookieArray = instagramCookieArrayFromSecret(secret);
 
     const axios = require('axios');
     const { CookieJar } = require('tough-cookie');
@@ -521,43 +557,9 @@ async function checkInstagramSession(req, res, next) {
  */
 async function proxyInstagram(req, res, next) {
   try {
-    const sessionId = req.query?.sessionId;
-    if (!sessionId) {
-      return res.status(400).json({ success: false, error: 'sessionId is required.' });
-    }
-
-    // Retrieve the session from the pool
-    let secret;
-    try {
-      secret = poolStore.getSessionSecret(sessionId);
-    } catch (e) {
-      if (e.code === 'DECRYPT_FAILED') {
-        return res.status(500).json({ success: false, error: e.message });
-      }
-      throw e;
-    }
-    if (!secret) {
-      return res.status(404).json({ success: false, error: 'Session not found.' });
-    }
-
-    // Build cookies array from the session
-    let cookieArray = secret.cookies || [];
-    if (!Array.isArray(cookieArray) || cookieArray.length === 0) {
-      // Build cookies from sessionid, csrftoken, dsUserId, mid
-      cookieArray = [];
-      if (secret.sessionid) {
-        cookieArray.push({ name: 'sessionid', value: secret.sessionid });
-      }
-      if (secret.csrftoken) {
-        cookieArray.push({ name: 'csrftoken', value: secret.csrftoken });
-      }
-      if (secret.dsUserId) {
-        cookieArray.push({ name: 'ds_user_id', value: secret.dsUserId });
-      }
-      if (secret.mid) {
-        cookieArray.push({ name: 'mid', value: secret.mid });
-      }
-    }
+    const secret = getSessionSecretForRequest(req, res);
+    if (!secret) return undefined;
+    const cookieArray = instagramCookieArrayFromSecret(secret);
 
     // Use axios with a proper cookie jar to handle redirects
     const axios = require('axios');
@@ -644,6 +646,7 @@ module.exports = {
   listSessions,
   addSessions,
   updateSession,
+  getSessionCookies,
   deleteSession,
   listProxies,
   addProxies,
