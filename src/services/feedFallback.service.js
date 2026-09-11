@@ -47,6 +47,10 @@ function edgesOf(result) {
   return result?.data?.user?.edge_owner_to_timeline_media?.edges || [];
 }
 
+function hasFeedItems(result) {
+  return edgesOf(result).length > 0;
+}
+
 function workerFallbackProxy(opts = {}) {
   if (opts.proxy !== undefined) return opts.proxy;
   return poolStore.nextProxy() || undefined;
@@ -99,6 +103,14 @@ async function getFallbackFeed(userId, opts = {}) {
     try {
       const attemptOptions = providerOptions(provider, opts);
       const result = await PROVIDERS[provider](username, attemptOptions);
+      if (!hasFeedItems(result)) {
+        failures.push({
+          provider,
+          status: result?.status || null,
+          error: 'Provider returned an empty feed.',
+        });
+        continue;
+      }
       return {
         ...result,
         source: result.source || provider,
