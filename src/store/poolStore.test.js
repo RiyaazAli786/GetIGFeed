@@ -31,3 +31,25 @@ test('parseSessionInput extracts required cookies from object.cookies', () => {
   assert.strictEqual(parsed.secret.csrftoken, 'csrf123');
   assert.strictEqual(parsed.secret.dsUserId, '12345');
 });
+
+test('parseSessionInput accepts a JSON string Chrome cookie export array', () => {
+  const parsed = parseSessionInput(JSON.stringify(chromeCookies, null, 2));
+
+  assert.strictEqual(parsed.secret.sessionid, '12345%3Aabc%3A17');
+  assert.strictEqual(parsed.secret.csrftoken, 'csrf123');
+  assert.strictEqual(parsed.secret.dsUserId, '12345');
+  assert.strictEqual(parsed.secret.cookies.length, 4);
+});
+
+test('parseSessionInput accepts a JSON string session object', () => {
+  const parsed = parseSessionInput(JSON.stringify({
+    label: 'json-object',
+    sessionid: '12345%3Aabc%3A17',
+    csrftoken: 'csrf123',
+  }));
+
+  assert.strictEqual(parsed.label, 'json-object');
+  assert.strictEqual(parsed.secret.sessionid, '12345%3Aabc%3A17');
+  assert.strictEqual(parsed.secret.csrftoken, 'csrf123');
+  assert.strictEqual(parsed.secret.dsUserId, '12345');
+});

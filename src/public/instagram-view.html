@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Instagram View · GetUserFeed</title>
+  <title>Instagram View - GetUserFeed</title>
   <style>
     body {
       margin: 0;
@@ -103,7 +103,7 @@
         const loading = document.getElementById('loading');
         loading.innerHTML = `
           <div class="error-box">
-            <div class="error-title">⚠ ${title}</div>
+            <div class="error-title">Warning: ${title}</div>
             <div class="error-msg" style="white-space: pre-wrap;">${msg}</div>
           </div>
         `;
@@ -114,9 +114,18 @@
         if (statusEl) statusEl.textContent = text;
       }
 
-      // First, check if the session is valid
+      function loadInstagram() {
+        updateLoading('Loading Instagram with session...');
+        return fetch('/admin/instagram?sessionId=' + encodeURIComponent(sessionId), {
+          method: 'GET',
+          headers: {
+            'x-admin-token': token,
+          },
+        });
+      }
+
       updateLoading('Checking session validity...');
-      
+
       fetch('/admin/instagram/check-session?sessionId=' + encodeURIComponent(sessionId), {
         method: 'GET',
         headers: {
@@ -126,42 +135,11 @@
         .then(r => r.json())
         .then(d => {
           console.log('[Session check response]', d);
-          
-          // Try to proceed if session is valid
-          if (d.sessionValid === true) {
-            // Session looks valid, proceed to load Instagram
-            updateLoading('Loading Instagram with session...');
-            
-            return fetch('/admin/instagram?sessionId=' + encodeURIComponent(sessionId), {
-              method: 'GET',
-              headers: {
-                'x-admin-token': token,
-              },
-            });
-          }
-          
-          // If we can't determine validity, still try to load but warn user
           if (d.sessionValid === false) {
-            showError(
-              'Session May Be Expired',
-              'The session is not recognized by Instagram. Possible reasons:\n' +
-              '• The session has expired\n' +
-              '• The account logged out\n' +
-              '• Instagram requires re-authentication\n\n' +
-              'Try adding a fresh session from the admin panel.\n\n' +
-              'Debug: ' + (d.message || d.error || 'Unknown')
-            );
-            return Promise.reject(new Error('Session not valid'));
+            console.warn('[Session check warning]', d.message || d.error || 'Unknown');
+            updateLoading('Session check was inconclusive. Loading Instagram...');
           }
-          
-          // Fallback - still try to load
-          updateLoading('Loading Instagram with session...');
-          return fetch('/admin/instagram?sessionId=' + encodeURIComponent(sessionId), {
-            method: 'GET',
-            headers: {
-              'x-admin-token': token,
-            },
-          });
+          return loadInstagram();
         })
         .then(r => {
           if (!r.ok) {
@@ -181,13 +159,9 @@
         })
         .catch(err => {
           console.error('Error:', err);
-          if (err.message === 'Session not valid') {
-            return; // Already showing error
-          }
           showError('Failed to Load Instagram', err.message);
         });
     })();
   </script>
 </body>
 </html>
-

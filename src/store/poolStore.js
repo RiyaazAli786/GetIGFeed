@@ -97,6 +97,11 @@ function mask(value, visible = 4) {
  * @returns {{ secret: object, dsUserId: string, label: string|undefined }}
  */
 function parseSessionInput(input) {
+  if (typeof input === 'string') {
+    const parsedJson = parseJsonSessionString(input);
+    if (parsedJson !== null) return parseSessionInput(parsedJson);
+  }
+
   let sessionid = '';
   let csrftoken = '';
   let mid = '';
@@ -158,6 +163,17 @@ function parseSessionInput(input) {
     dsUserId,
     label,
   };
+}
+
+function parseJsonSessionString(input) {
+  const str = String(input || '').trim();
+  if (!/^[{[]/.test(str)) return null;
+
+  try {
+    return JSON.parse(str);
+  } catch {
+    return null;
+  }
 }
 
 function normalizeCookieArray(input) {

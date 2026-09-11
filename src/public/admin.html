@@ -711,14 +711,33 @@
     var raw = $('sess-add').value.trim();
     if (!raw) { toast('Nothing to add', 'err'); return; }
     var label = $('sess-add-label').value.trim();
-    var items = raw.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean)
-      .map(function (line) { return label ? { sessionid: line, label: label } : line; });
+    var items = parseSessionText(raw, label);
     api('POST', '/sessions', { sessions: items }).then(function (d) {
       toast('Added ' + d.added.length + ', skipped ' + d.skipped, 'ok');
       $('sess-add').value = ''; $('sess-add-label').value = '';
       loadSessions();
     }).catch(function (e) { toast(e.message, 'err'); });
   });
+
+  function parseSessionText(raw, label) {
+    try {
+      var parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.some(function (c) { return c && c.name && c.value !== undefined; })) {
+        return [{ cookies: parsed, label: label || undefined }];
+      }
+      var parsedItems = Array.isArray(parsed) ? parsed : [parsed];
+      return parsedItems.map(function (item) {
+        if (item && typeof item === 'object' && !Array.isArray(item) && label && !item.label) {
+          item = Object.assign({}, item, { label: label });
+        }
+        return item;
+      });
+    } catch (e) {
+      // Not a single JSON document; treat each non-empty line as one session.
+    }
+    return raw.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean)
+      .map(function (line) { return label ? { sessionid: line, label: label } : line; });
+  }
 
   // Add proxies
   $('prox-add-btn').addEventListener('click', function () {

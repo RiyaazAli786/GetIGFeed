@@ -421,10 +421,7 @@ async function checkInstagramSession(req, res, next) {
     if (!Array.isArray(cookieArray) || cookieArray.length === 0) {
       cookieArray = [];
       if (secret.sessionid) {
-        const decodedSessionid = secret.sessionid.includes('%') 
-          ? decodeURIComponent(secret.sessionid) 
-          : secret.sessionid;
-        cookieArray.push({ name: 'sessionid', value: decodedSessionid });
+        cookieArray.push({ name: 'sessionid', value: secret.sessionid });
       }
       if (secret.csrftoken) {
         cookieArray.push({ name: 'csrftoken', value: secret.csrftoken });
@@ -539,11 +536,7 @@ async function proxyInstagram(req, res, next) {
       // Build cookies from sessionid, csrftoken, dsUserId, mid
       cookieArray = [];
       if (secret.sessionid) {
-        // Decode URL-encoded sessionid if needed
-        const decodedSessionid = secret.sessionid.includes('%') 
-          ? decodeURIComponent(secret.sessionid) 
-          : secret.sessionid;
-        cookieArray.push({ name: 'sessionid', value: decodedSessionid });
+        cookieArray.push({ name: 'sessionid', value: secret.sessionid });
       }
       if (secret.csrftoken) {
         cookieArray.push({ name: 'csrftoken', value: secret.csrftoken });
