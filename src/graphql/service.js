@@ -58,6 +58,16 @@ function webBrowserHeaders(extra = {}) {
   };
 }
 
+function graphQLWebHeaders(param = {}, csrfToken = '') {
+  // GraphQL is a web endpoint. The mobile-style Bearer IGT authorization header
+  // can make these requests look unlike normal browser traffic, so use cookies
+  // plus the web CSRF/claim headers only.
+  return webBrowserHeaders({
+    ...(csrfToken ? { 'x-csrftoken': csrfToken } : {}),
+    ...(param.xIgClaim ? { 'x-ig-www-claim': param.xIgClaim } : {}),
+  });
+}
+
 // ─── User ID resolution ──────────────────────────────────────────────────────
 
 /**
@@ -91,10 +101,7 @@ async function resolveUserId(username) {
   try {
     const account = poolStore.resolveAccount();
     const param = getWebParameter(account);
-    const headers = webBrowserHeaders({
-      ...(param.csrfToken ? { 'x-csrftoken': param.csrfToken } : {}),
-      ...(param.authorization ? { Authorization: param.authorization } : {}),
-    });
+    const headers = graphQLWebHeaders(param, param.csrfToken);
     const url =
       'https://www.instagram.com/api/v1/users/web_profile_info/?' +
       `username=${encodeURIComponent(username)}`;
@@ -214,11 +221,7 @@ async function fetchFromGraphQL(username, opts = {}) {
     if (tok?.csrfToken) csrfToken = tok.csrfToken;
   } catch (_) {}
 
-  const baseHeaders = webBrowserHeaders({
-    ...(csrfToken ? { 'x-csrftoken': csrfToken } : {}),
-    ...(param.authorization ? { Authorization: param.authorization } : {}),
-    ...(param.xIgClaim ? { 'x-ig-www-claim': param.xIgClaim } : {}),
-  });
+  const baseHeaders = graphQLWebHeaders(param, csrfToken);
 
   // ── Step 1: Resolve user ID ──────────────────────────────────────────────
   let userId;
@@ -312,4 +315,5 @@ const {
 module.exports = {
   resolveUserId,
   fetchFromGraphQL,
+  graphQLWebHeaders,
 };

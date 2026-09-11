@@ -138,6 +138,9 @@ async function getFallbackFeed(userId, opts = {}) {
         fallback: {
           used: true,
           provider,
+          triggerReason: opts.reason || null,
+          // Kept for older clients; this is why fallback started, not the
+          // selected provider's own error.
           reason: opts.reason || null,
           proxy: attemptOptions.proxy ? attemptOptions.proxySource : null,
           failures,

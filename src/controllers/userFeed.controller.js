@@ -436,7 +436,7 @@ async function postUserFeed(req, res, next) {
         provider,
         logFile: logFile || undefined,
         details: {
-          reason: result.fallback.reason || undefined,
+          triggerReason: result.fallback.triggerReason || result.fallback.reason || undefined,
         },
       });
     } else if (result?.private_retry?.used) {
