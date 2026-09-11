@@ -17,6 +17,7 @@ const PROVIDERS = {
   anonyig: (username, opts) => anonyig.getConvertedFeed(username, opts),
   fastdl: (username, opts) => fastdl.getConvertedFeed(username, opts),
 };
+const DEFAULT_PROVIDERS = ['graphql', 'anonyig', 'fastdl'];
 const WORKER_PROVIDERS = ['anonyig', 'fastdl'];
 let workerProviderCursor = 0;
 
@@ -38,8 +39,10 @@ function normalizeUsername(value) {
 }
 
 function providerList(value = process.env.FEED_FALLBACK_PROVIDERS) {
-  const names = String(value || 'graphql,anonyig,fastdl')
-    .split(',')
+  const source = value == null || String(value).trim() === ''
+    ? DEFAULT_PROVIDERS
+    : String(value).split(',');
+  const names = source
     .map((name) => name.trim().toLowerCase())
     .filter(Boolean);
   return names.filter((name, index) => PROVIDERS[name] && names.indexOf(name) === index);
