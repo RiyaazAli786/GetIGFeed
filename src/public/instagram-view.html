@@ -63,10 +63,13 @@
 
       const params = new URLSearchParams(window.location.search);
       const sessionId = params.get('sessionId');
+      const debug = params.get('debug') === '1';
       const token = localStorage.getItem('admin_token');
       const title = document.getElementById('title');
       const msg = document.getElementById('msg');
       const retry = document.getElementById('retry');
+      let requestedSessionId = sessionId;
+      let resolvedSessionId = sessionId;
 
       function setState(nextTitle, nextMsg, canRetry) {
         title.textContent = nextTitle;
@@ -136,11 +139,14 @@
             if (!d.cookies || !d.cookies.length) {
               throw new Error('No cookies were returned for this session.');
             }
+            requestedSessionId = d.requestedSessionId || requestedSessionId;
+            resolvedSessionId = d.sessionId || resolvedSessionId;
             setState('Opening Instagram', 'Applying cookies in Chrome...', false);
             window.postMessage({
               type: 'GETIGFEED_OPEN_INSTAGRAM',
               cookies: d.cookies,
               url: 'https://www.instagram.com/',
+              debug: debug,
             }, window.location.origin);
           })
           .catch(function (err) {
@@ -154,6 +160,22 @@
         if (event.data.type === 'GETIGFEED_EXTENSION_ERROR') {
           retry.disabled = false;
           fail(event.data.error || 'The extension could not set Instagram cookies.');
+        } else if (event.data.type === 'GETIGFEED_EXTENSION_DONE' && debug) {
+          const result = event.data.result || {};
+          const names = (result.cookies || []).map(function (cookie) {
+            return cookie.name + ' [' + cookie.domain + ']';
+          });
+          retry.disabled = false;
+          setState(
+            'Cookies written',
+            'Requested session: ' + (requestedSessionId || 'none') + '\n' +
+              'Resolved session: ' + (resolvedSessionId || 'none') + '\n' +
+              'Store: ' + (result.storeId || 'unknown') + '\n' +
+              'Removed old cookies: ' + (result.removed || 0) + '\n' +
+              'Written cookies: ' + (result.written || 0) + '\n\n' +
+              (names.length ? names.join('\n') : 'No Instagram cookies visible to Chrome.'),
+            true
+          );
         }
       });
 

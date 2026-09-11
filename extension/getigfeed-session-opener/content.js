@@ -15,6 +15,7 @@
       type: 'GETIGFEED_OPEN_INSTAGRAM',
       cookies: event.data.cookies || [],
       url: event.data.url || 'https://www.instagram.com/',
+      debug: event.data.debug === true,
     }, function (response) {
       if (chrome.runtime.lastError) {
         window.postMessage({
@@ -31,6 +32,10 @@
         return;
       }
       console.log('[GetIGFeed Session Opener]', response || { success: true });
+      window.postMessage({
+        type: 'GETIGFEED_EXTENSION_DONE',
+        result: response || { success: true },
+      }, window.location.origin);
     });
   });
 })();

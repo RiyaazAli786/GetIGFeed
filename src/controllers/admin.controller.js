@@ -102,6 +102,20 @@ function getSessionSecretForRequest(req, res) {
     throw e;
   }
   if (!secret) {
+    const sessions = poolStore.listSessions();
+    if (sessions.length === 1 && sessions[0]?.id && sessions[0].id !== sessionId) {
+      try {
+        secret = poolStore.getSessionSecret(sessions[0].id);
+      } catch (e) {
+        if (e.code === 'DECRYPT_FAILED') {
+          res.status(500).json({ success: false, error: e.message });
+          return null;
+        }
+        throw e;
+      }
+    }
+  }
+  if (!secret) {
     res.status(404).json({ success: false, error: 'Session not found.' });
     return null;
   }
@@ -344,6 +358,7 @@ function getSessionCookies(req, res, next) {
       success: true,
       sessionId: secret.id,
       dsUserId: secret.dsUserId || null,
+      requestedSessionId: req.params?.id || req.query?.sessionId || null,
       cookies: instagramCookieArrayFromSecret(secret),
     });
   } catch (err) {
