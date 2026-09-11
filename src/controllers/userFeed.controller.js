@@ -207,7 +207,7 @@ async function postUserFeed(req, res, next) {
         const bridgeEndpoint =
           bridgeResult.bridge?.endpoint ||
           (process.env.FEEDPILOT_BRIDGE_URL
-            ? `${process.env.FEEDPILOT_BRIDGE_URL.replace(/\/+$/, '')}/v1/feed/user`
+            ? `${process.env.FEEDPILOT_BRIDGE_URL.replace(/\/+$/, '')}/api/bridge/feed`
             : 'feedpilot-bridge');
         setFeedResolution(res, {
           resolvedFrom: 'FeedPilot Bridge',
