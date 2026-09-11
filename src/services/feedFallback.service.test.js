@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const {
   normalizeUsername,
+  providerList,
   shouldFallbackForError,
   shouldFallbackForPrivateResult,
 } = require('./feedFallback.service');
@@ -16,6 +17,10 @@ test('normalizeUsername accepts handles and Instagram profile URLs', () => {
 
 test('normalizeUsername rejects numeric ids because public fallbacks need handles', () => {
   assert.equal(normalizeUsername('25025320'), null);
+});
+
+test('providerList defaults to graphql, anonyig, then fastdl', () => {
+  assert.deepEqual(providerList(), ['graphql', 'anonyig', 'fastdl']);
 });
 
 test('shouldFallbackForPrivateResult only triggers on empty 401-like failures', () => {

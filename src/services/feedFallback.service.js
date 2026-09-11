@@ -2,8 +2,18 @@
 
 const anonyig = require('../anonyig/service');
 const fastdl = require('../fastdl/service');
+const graphql = require('../graphql/service');
+const poolStore = require('../store/poolStore');
 
 const PROVIDERS = {
+  graphql: (username, opts) => graphql.fetchFromGraphQL(username, {
+    first: opts.first || opts.count || 12,
+    after: opts.after || opts.endCursor,
+    useProxy: false,
+    includeStories: Boolean(opts.includeStories),
+    includeHighlightDetails: opts.includeHighlightDetails !== false,
+    highlightDetailLimit: opts.highlightDetailLimit,
+  }),
   anonyig: (username, opts) => anonyig.getConvertedFeed(username, opts),
   fastdl: (username, opts) => fastdl.getConvertedFeed(username, opts),
 };
@@ -26,7 +36,7 @@ function normalizeUsername(value) {
 }
 
 function providerList(value = process.env.FEED_FALLBACK_PROVIDERS) {
-  const names = String(value || 'anonyig,fastdl')
+  const names = String(value || 'graphql,anonyig,fastdl')
     .split(',')
     .map((name) => name.trim().toLowerCase())
     .filter(Boolean);
@@ -35,6 +45,32 @@ function providerList(value = process.env.FEED_FALLBACK_PROVIDERS) {
 
 function edgesOf(result) {
   return result?.data?.user?.edge_owner_to_timeline_media?.edges || [];
+}
+
+function workerFallbackProxy(opts = {}) {
+  if (opts.proxy !== undefined) return opts.proxy;
+  return poolStore.nextProxy() || undefined;
+}
+
+function providerOptions(provider, opts = {}) {
+  const options = {
+    pages: opts.pages || 1,
+    first: opts.first || opts.count || 12,
+    after: opts.after || opts.endCursor,
+    includeStories: Boolean(opts.includeStories),
+    includeHighlightDetails: opts.includeHighlightDetails !== false,
+    highlightDetailLimit: opts.highlightDetailLimit,
+  };
+
+  if (provider === 'anonyig' || provider === 'fastdl') {
+    const proxy = workerFallbackProxy(opts);
+    if (proxy !== undefined) {
+      options.proxy = proxy;
+      options.proxySource = opts.proxy !== undefined ? 'provided' : 'pool';
+    }
+  }
+
+  return options;
 }
 
 function shouldFallbackForPrivateResult(result) {
@@ -61,12 +97,8 @@ async function getFallbackFeed(userId, opts = {}) {
   const failures = [];
   for (const provider of providerList(opts.providers)) {
     try {
-      const result = await PROVIDERS[provider](username, {
-        pages: opts.pages || 1,
-        includeStories: Boolean(opts.includeStories),
-        includeHighlightDetails: opts.includeHighlightDetails !== false,
-        highlightDetailLimit: opts.highlightDetailLimit,
-      });
+      const attemptOptions = providerOptions(provider, opts);
+      const result = await PROVIDERS[provider](username, attemptOptions);
       return {
         ...result,
         source: result.source || provider,
@@ -74,6 +106,7 @@ async function getFallbackFeed(userId, opts = {}) {
           used: true,
           provider,
           reason: opts.reason || null,
+          proxy: attemptOptions.proxy ? attemptOptions.proxySource : null,
           failures,
         },
       };
@@ -97,4 +130,5 @@ module.exports = {
   shouldFallbackForPrivateResult,
   shouldFallbackForError,
   normalizeUsername,
+  providerList,
 };

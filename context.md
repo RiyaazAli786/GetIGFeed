@@ -152,7 +152,7 @@ GetIGFeed/
 
 ### 3.4 Multi-Tier Fallback Engine (`src/services/feedFallback.service.js`)
 * Automatically activates when private sessions return 401, challenges, spam blocks, or when pool sessions are empty.
-* Fallback sequence: `FEED_FALLBACK_PROVIDERS` (default: `anonyig`, `fastdl`).
+* Fallback sequence: `FEED_FALLBACK_PROVIDERS` (default: `graphql`, `anonyig`, `fastdl`).
 * Re-formats external provider data into standard `web_profile_info`.
 
 ### 3.5 Worker Hubs (AnonyIG & FastDL)

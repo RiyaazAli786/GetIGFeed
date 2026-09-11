@@ -101,6 +101,18 @@ const run = async (fn) => {
   }
 };
 
+const runWithOptions = async (opts, fn) => {
+  if (!opts || opts.proxy === undefined) return run(fn);
+  const scopedClient = new AnonyIG({ proxy: opts.proxy });
+  try {
+    return await fn(scopedClient);
+  } catch (err) {
+    throw toHttpError(err);
+  } finally {
+    scopedClient.close();
+  }
+};
+
 /** Profile header for one handle. */
 const getUser = (handle) => {
   const username = normalizeUsername(handle);
@@ -145,7 +157,7 @@ const getConvertedFeed = (handle, opts = {}) => {
   const username = normalizeUsername(handle);
   const pages = normalizePages(opts.pages);
   const limit = parseInt(opts.highlightDetailLimit, 10);
-  return run((ig) =>
+  return runWithOptions(opts, (ig) =>
     buildConvertedFeed(ig, username, {
       pages,
       includeStories: Boolean(opts.includeStories),

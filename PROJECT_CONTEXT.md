@@ -18,7 +18,7 @@ Last built: 2026-09-10
 
 3. **Multi-Tier Public Fallback Engine (`src/services/feedFallback.service.js`)**:
    - Automated zero-credential failover when private sessions are unavailable, empty, or hit Instagram anti-bot challenges.
-   - Sequentially queries sessionless providers (`FEED_FALLBACK_PROVIDERS`: `anonyig`, `fastdl`) and transforms responses into standard `web_profile_info` envelopes.
+   - Sequentially queries fallback providers (`FEED_FALLBACK_PROVIDERS`: `graphql`, `anonyig`, `fastdl`) and transforms responses into standard `web_profile_info` envelopes.
 
 4. **Third-Party Story & Highlight Scrapers (`src/services/storyFetcher.js`)**:
    - Public sessionless story/highlight extraction (storynavigation.com, anonstories.com, i.theasmn.com).
@@ -124,8 +124,9 @@ Client Request
                   ▼
             [7. Public Fallback Engine] (getFallbackFeed)
                   ├─ Normalizes handle from input (rejects bare numeric IDs)
-                  ├─ Provider 1: AnonyIG (anonyig.getConvertedFeed)
-                  ├─ Provider 2: FastDL (fastdl.getConvertedFeed)
+                  ├─ Provider 1: GraphQL (no fallback proxy)
+                  ├─ Provider 2: AnonyIG (pool/provided proxy)
+                  ├─ Provider 3: FastDL (pool/provided proxy)
                   └─ Annotates payload with fallback metadata (used, provider, failures)
       │
       ▼
@@ -156,7 +157,7 @@ Normalizes the Android payload into standard Instagram `data.user` (`edge_owner_
 
 When private sessions are banned, rate-limited, challenge-gated, or pool sessions are exhausted:
 1. Validates that the target is a public handle (not bare numeric ID).
-2. Runs through `FEED_FALLBACK_PROVIDERS` (default: `anonyig,fastdl`).
+2. Runs through `FEED_FALLBACK_PROVIDERS` (default: `graphql,anonyig,fastdl`).
 3. Formats the data into the identical `web_profile_info` structure so client applications do not need custom parsers.
 4. Appends a `fallback` metadata block indicating provider used, reason, and any preceding provider failures.
 
@@ -269,7 +270,7 @@ To eliminate the common issue of empty/zero follower counts or collaborator post
 | `FEEDPILOT_BRIDGE_KEY` | String | Empty | Bridge authentication key (`X-Bridge-Key`) |
 | `FEEDPILOT_BRIDGE_TIMEOUT_MS` | Number | `35000` | Timeout for Android device response |
 | `FEEDPILOT_BRIDGE_FALLBACK` | Boolean| `true` | Fallback to pool if Android bridge fails |
-| `FEED_FALLBACK_PROVIDERS` | String | `anonyig,fastdl` | Comma-separated public fallback order |
+| `FEED_FALLBACK_PROVIDERS` | String | `graphql,anonyig,fastdl` | Comma-separated fallback order |
 | `FEED_CACHE_DEFAULT` | Boolean| `false` | Enable in-memory TTL caching for 1st-page feeds |
 | `CACHE_TTL_MS` | Number | `30000` | Feed memory cache TTL |
 | `FEED_INCLUDE_STORIES` | Boolean| `true` | Auto-merge stories/highlights in feed responses |

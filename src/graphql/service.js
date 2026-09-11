@@ -23,6 +23,26 @@ const GRAPHQL_DOC_ID = '7950326061742207';
 
 const badRequest = (msg) => Object.assign(new Error(msg), { status: 400 });
 
+function cookiesFromSession(session) {
+  if (!session) return [];
+  if (Array.isArray(session.cookies) && session.cookies.length) return session.cookies;
+  const cookies = [];
+  if (session.sessionid) cookies.push({ name: 'sessionid', value: session.sessionid, domain: 'instagram.com' });
+  if (session.csrftoken) cookies.push({ name: 'csrftoken', value: session.csrftoken, domain: 'instagram.com' });
+  if (session.dsUserId) cookies.push({ name: 'ds_user_id', value: session.dsUserId, domain: 'instagram.com' });
+  if (session.mid) cookies.push({ name: 'mid', value: session.mid, domain: 'instagram.com' });
+  return cookies;
+}
+
+function graphQLAccount(opts = {}) {
+  if (opts.useProxy === false) {
+    const session = poolStore.nextSession();
+    const cookies = cookiesFromSession(session);
+    return cookies.length ? { cookies } : null;
+  }
+  return poolStore.resolveAccount();
+}
+
 // ─── Headers ────────────────────────────────────────────────────────────────
 
 function webBrowserHeaders(extra = {}) {
@@ -182,8 +202,9 @@ async function fetchFromGraphQL(username, opts = {}) {
   const first = Math.min(parseInt(opts.first, 10) || 12, 50);
   const after = opts.after || opts.endCursor || null;
 
-  // Draw account + proxy from the pool.
-  const account = poolStore.resolveAccount();
+  // Draw auth from the pool. /api/user-feed fallback disables proxy here so
+  // only the AnonyIG and FastDL worker fallbacks consume proxy pool entries.
+  const account = graphQLAccount(opts);
   const param = getWebParameter(account);
 
   // Get a fresh CSRF token if available; silently fall back to cookie-derived.
