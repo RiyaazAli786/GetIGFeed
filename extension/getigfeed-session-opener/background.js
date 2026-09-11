@@ -14,6 +14,7 @@ function cookieDetails(cookie, storeId) {
     url: INSTAGRAM_URL,
     name: String(cookie.name || ''),
     value: String(cookie.value || ''),
+    domain: '.instagram.com',
     path: cookie.path || '/',
     secure: cookie.secure !== false,
     httpOnly: Boolean(cookie.httpOnly),
@@ -102,6 +103,7 @@ function listInstagramCookies(storeId) {
         path: cookie.path,
         secure: cookie.secure,
         httpOnly: cookie.httpOnly,
+        hostOnly: cookie.hostOnly,
         session: cookie.session,
         storeId: cookie.storeId,
       };

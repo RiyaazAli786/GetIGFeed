@@ -163,7 +163,7 @@
         } else if (event.data.type === 'GETIGFEED_EXTENSION_DONE' && debug) {
           const result = event.data.result || {};
           const names = (result.cookies || []).map(function (cookie) {
-            return cookie.name + ' [' + cookie.domain + ']';
+            return cookie.name + ' [' + cookie.domain + (cookie.hostOnly ? ', host-only' : ', domain') + ']';
           });
           retry.disabled = false;
           setState(
