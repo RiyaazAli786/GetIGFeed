@@ -29,6 +29,13 @@ test('orderedProviders keeps IGram before alternating worker fallbacks', () => {
   assert.deepEqual(orderedProviders(), ['graphql', 'igram', 'fastdl', 'anonyig']);
 });
 
+test('orderedProviders preserves an explicitly supplied provider order', () => {
+  assert.deepEqual(
+    orderedProviders(['igram', 'fastdl', 'anonyig']),
+    ['igram', 'fastdl', 'anonyig']
+  );
+});
+
 test('shouldFallbackForPrivateResult only triggers on empty 401-like failures', () => {
   assert.equal(
     shouldFallbackForPrivateResult({

@@ -54,6 +54,8 @@ function providerList(value = process.env.FEED_FALLBACK_PROVIDERS) {
 
 function orderedProviders(value = process.env.FEED_FALLBACK_PROVIDERS) {
   const providers = providerList(value);
+  if (Array.isArray(value)) return providers;
+
   const nonWorkers = providers.filter((provider) => !WORKER_PROVIDERS.includes(provider));
   const workers = WORKER_PROVIDERS.filter((provider) => providers.includes(provider));
 
