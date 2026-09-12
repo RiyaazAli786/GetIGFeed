@@ -19,64 +19,6 @@ const {
   PAGE_COUNT,
 } = require('../config/constants');
 
-// IGram is an independent worker-hub fallback for public profile handles. It
-// is deliberately enabled by default, but can be disabled globally or per
-// request when only the authenticated Instagram-private-API result is wanted.
-const IGRAM_FALLBACK_DEFAULT = process.env.USER_FEED_IGRAM_FALLBACK !== 'false';
-const HUB_FALLBACK_DEFAULT = process.env.USER_FEED_HUB_FALLBACK !== 'false';
-
-function bool(value, fallback) {
-  if (value === undefined || value === null || value === '') return fallback;
-  if (typeof value === 'boolean') return value;
-  return !['false', '0', 'no', 'off'].includes(String(value).trim().toLowerCase());
-}
-
-function isIgramFallbackEnabled(opts = {}) {
-  return bool(opts.igramFallback, IGRAM_FALLBACK_DEFAULT);
-}
-
-function isHubFallbackEnabled(opts = {}) {
-  return bool(opts.hubFallback, HUB_FALLBACK_DEFAULT);
-}
-
-/** Enabled converted-feed fallback sources, in their deterministic order. */
-function getConvertedFallbackSources(opts = {}) {
-  const sources = [];
-  if (isIgramFallbackEnabled(opts)) sources.push('igram');
-  if (isHubFallbackEnabled(opts)) sources.push('fastdl', 'anonyig');
-  return sources;
-}
-
-function canUseConvertedFallback(userId, opts = {}) {
-  return Boolean(getIgramFallbackHandle(userId)) && getConvertedFallbackSources(opts).length > 0;
-}
-
-async function fetchConvertedFallback(handle, storyOptions, opts = {}) {
-  const attempts = [];
-  const loaders = {
-    igram: () => require('../igram/service'),
-    fastdl: () => require('../fastdl/service'),
-    anonyig: () => require('../anonyig/service'),
-  };
-
-  for (const source of getConvertedFallbackSources(opts)) {
-    try {
-      const result = await loaders[source]().getConvertedFeed(handle, {
-        pages: 1,
-        includeStories: storyOptions.enabled,
-        includeHighlightDetails: storyOptions.includeHighlightDetails,
-        highlightDetailLimit: storyOptions.highlightDetailLimit,
-      });
-      const edges = result?.data?.user?.edge_owner_to_timeline_media?.edges || [];
-      if (edges.length) return { result, source, attempts };
-      attempts.push({ source, error: 'No public posts returned.' });
-    } catch (err) {
-      attempts.push({ source, error: err.message || 'Fallback request failed.' });
-    }
-  }
-  return { result: null, source: null, attempts };
-}
-
 /**
  * Fetch only the first page of an Instagram user feed (the most recent
  * PAGE_COUNT posts — 12 by default) and return it in the web_profile_info
@@ -114,7 +56,6 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
   let hasMore = false;
   let errorMessage = null;
   let profile = null;
-  let igramFallback = null;
 
   // Hydrate any missing cookies/proxy from the encrypted pool. Session and
   // proxy secrets are decrypted here, at the point of use.
@@ -154,13 +95,20 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
       : encodeURIComponent(inputUser);
     const endpoint = `/api/v1/feed/user/${feedTarget}/?count=${PAGE_COUNT}${maxParam}`;
     const response = await param.client.get(endpoint, { headers });
+    const data = response.data || {};
 
     // EnsureSuccessStatusCode equivalent.
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(`Request failed with status ${response.status}`);
+      const err = new Error(`Request failed with status ${response.status}`);
+      err.status = response.status;
+      err.instagram = {
+        status: data.status,
+        message: data.message,
+        spam: data.spam,
+        statusCode: data.status_code,
+      };
+      throw err;
     }
-
-    const data = response.data || {};
 
     // First page only — take the most recent PAGE_COUNT items.
     if (Array.isArray(data.items)) posts = data.items.slice(0, PAGE_COUNT);
@@ -168,11 +116,20 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     nextMaxId = data.next_max_id ?? null;
 
     // Profile fields (follower/following counts, HD avatar) that the feed
-    // response carries at the top level.
-    profile = mergeProfiles(data.user, posts[0]?.user);
+    // response carries at the top level. For username lookups, Instagram can
+    // return mixed/collab media, so only use profile candidates that match the
+    // requested handle.
+    profile = profileFromFeed(data.user, posts, inputHandle);
     if (!hasProfileCounts(profile)) {
       // Profile details missing counts -> fetch details as fast fallback (non-blocking)
-      const fetchedDetails = await fetchUserProfileDetails(param.client, inputUser, headers, profile);
+      const profileHeaders = { ...headers };
+      try {
+        const cookieHeader = param.jar.getCookieStringSync('https://www.instagram.com/');
+        if (cookieHeader) profileHeaders.Cookie = cookieHeader;
+      } catch {
+        /* cookie header is best-effort; the cookie agent still has the jar */
+      }
+      const fetchedDetails = await fetchUserProfileDetails(param.client, inputUser, profileHeaders, profile);
       if (fetchedDetails) profile = mergeProfiles(profile, fetchedDetails);
     }
 
@@ -190,40 +147,7 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     // Preserve that behavior but log + capture the reason for diagnostics.
     // eslint-disable-next-line no-console
     console.error('[getUserFeed] error:', err.message);
-    errorMessage = humanizeFetchError(err.message);
-  }
-
-  // The private API can fail because a pool session expired, the proxy was
-  // blocked, or the account has no session configured at all. For a public
-  // handle, try each independent converted-feed hub before returning empty.
-  // Do not use hubs for a cursor page: their cursors are upstream-specific.
-  const fallbackHandle = getIgramFallbackHandle(profile?.username || inputHandle);
-  if (!posts.length && !maxId && fallbackHandle && getConvertedFallbackSources(opts).length) {
-    const fallback = await fetchConvertedFallback(fallbackHandle, storyOptions, opts);
-    if (fallback.result) {
-      const result = fallback.result;
-      // /api/user-feed only emits story/highlight nodes when explicitly
-      // requested. The standalone hub contracts keep them by default.
-      if (!storyOptions.enabled) {
-        delete result.stories;
-        delete result.highlights;
-        delete result.highlight_details;
-      }
-      result.fallback = {
-        used: true,
-        source: fallback.source,
-        primaryError: errorMessage || 'Instagram private API returned no posts.',
-        attempts: fallback.attempts,
-      };
-      return result;
-    }
-    if (fallback.attempts.length) {
-      igramFallback = {
-        attempted: true,
-        sources: fallback.attempts,
-        error: fallback.attempts[fallback.attempts.length - 1].error,
-      };
-    }
+    errorMessage = humanizeFetchError(err.message, err);
   }
 
   // Convert feed/user items → web_profile_info response shape.
@@ -234,12 +158,10 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     count: pickCount(profile, 'media_count', 'edge_owner_to_timeline_media') ?? posts.length,
     user: profile,
   });
-  // Keep the winning-source marker consistent with converted hub responses.
   out.source = 'instagram';
   // Surface a diagnostic only when nothing came back, so callers/UI can explain
   // an empty feed instead of showing a bare "0 posts".
   if (!posts.length && errorMessage) out.error = errorMessage;
-  if (igramFallback) out.fallback = igramFallback;
 
   // Stories + highlights as their own nodes on the same response.
   if (storyOptions.enabled) {
@@ -286,12 +208,6 @@ function normalizeUsername(value) {
   return raw.replace(/^@/, '').split(/[/?#]/)[0].trim();
 }
 
-/** Return a valid public-profile handle, or null for numeric ids/invalid input. */
-function getIgramFallbackHandle(value) {
-  const handle = normalizeUsername(value);
-  return /^[A-Za-z0-9._]{1,30}$/.test(handle) && !/^\d+$/.test(handle) ? handle : null;
-}
-
 async function resolveUsernamePk(username) {
   try {
     return await resolveUserId(username);
@@ -314,14 +230,33 @@ function mergeProfiles(...profiles) {
   return Object.keys(merged).length ? merged : null;
 }
 
+function profileFromFeed(feedUser, posts, requestedHandle) {
+  if (!requestedHandle) return mergeProfiles(feedUser, posts?.[0]?.user);
+
+  const matchingFeedUser = usernameMatches(feedUser?.username, requestedHandle)
+    ? feedUser
+    : null;
+  const matchingPostUser = (posts || [])
+    .map((post) => post?.user)
+    .find((user) => usernameMatches(user?.username, requestedHandle));
+
+  return mergeProfiles(matchingPostUser, matchingFeedUser);
+}
+
+function usernameMatches(actual, expected) {
+  const normalize = (value) => String(value || '').trim().replace(/^@/, '').toLowerCase();
+  return normalize(actual) && normalize(actual) === normalize(expected);
+}
+
 /**
  * True when the payload already carries both follow counts, in either the
  * private-API (`follower_count`) or web (`edge_followed_by.count`) spelling.
  */
 function hasProfileCounts(user) {
-  const has = (a, b) =>
-    typeof user?.[a] === 'number' || typeof user?.[b]?.count === 'number';
-  return has('follower_count', 'edge_followed_by') && has('following_count', 'edge_follow');
+  const followers = pickCount(user, 'follower_count', 'edge_followed_by', 'followers_count');
+  const following = pickCount(user, 'following_count', 'edge_follow', 'follows_count');
+  if (followers === null || following === null) return false;
+  return followers > 0 || following > 0;
 }
 
 /**
@@ -336,6 +271,20 @@ async function fetchUserProfileDetails(client, usernameOrId, headers, initialPro
   let userObj = initialProfile || null;
   let mediaCount = pickCount(userObj, 'media_count', 'edge_owner_to_timeline_media') || 0;
   let pk = numericPk(userObj?.pk_id, userObj?.pk, userObj?.id) || (/^\d+$/.test(clean) ? clean : null);
+
+  if (!pk && !/^\d+$/.test(clean)) {
+    pk = await resolveUsernamePk(clean);
+  }
+
+  if (pk) {
+    const hoverUser = await fetchPolarisHoverCardProfile(client, clean, pk, headers);
+    if (hoverUser) {
+      userObj = mergeProfiles(userObj, hoverUser);
+      const hoverMediaCount = pickCount(hoverUser, 'media_count', 'edge_owner_to_timeline_media');
+      if (typeof hoverMediaCount === 'number') mediaCount = hoverMediaCount;
+      pk = numericPk(hoverUser.pk_id, hoverUser.pk, hoverUser.id, pk);
+    }
+  }
 
   if (!pk) {
     const feedUrl =
@@ -401,6 +350,141 @@ async function fetchUserProfileDetails(client, usernameOrId, headers, initialPro
     normalized.media_count = resolvedMediaCount;
   }
   return normalized;
+}
+
+async function fetchPolarisHoverCardProfile(client, usernameOrId, userId, headers) {
+  const targetUserId = numericPk(userId);
+  if (!targetUserId) return null;
+
+  const handle = normalizeUsername(usernameOrId);
+  const csrfToken = headers?.['x-csrftoken'] || headers?.['X-CSRFToken'] || '';
+  const lsdToken = process.env.INSTAGRAM_LSD_TOKEN || 'toxLtqxo-5GooSYWUv2PJ1';
+  const referer = /^\d+$/.test(handle)
+    ? 'https://www.instagram.com/'
+    : `https://www.instagram.com/${encodeURIComponent(handle)}/`;
+
+  const body = new URLSearchParams({
+    jazoest: createJazoest(targetUserId),
+    __crn: 'comet.igweb.PolarisProfilePostsTabRoute',
+    fb_api_caller_class: 'RelayModern',
+    fb_api_req_friendly_name: 'PolarisUserHoverCardContentV2Query',
+    server_timestamps: 'true',
+    variables: JSON.stringify({ userID: targetUserId }),
+    doc_id: '27756568060663620',
+  });
+
+  try {
+    const fbDtsg = await fetchFbDtsgToken(client, headers?.Cookie, handle);
+    if (fbDtsg) body.set('fb_dtsg', fbDtsg);
+
+    const response = await client.post(
+      'https://www.instagram.com/api/graphql',
+      body.toString(),
+      {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+            '(KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'sec-ch-ua-full-version-list':
+            '"Not=A?Brand";v="99.0.0.0", "Google Chrome";v="151.0.7922.108", "Chromium";v="151.0.7922.108"',
+          'sec-ch-ua-platform': '"Windows"',
+          'viewport-width': '1517',
+          'sec-ch-ua': '"Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"',
+          'sec-ch-ua-model': '""',
+          'sec-ch-ua-mobile': '?0',
+          'X-IG-App-ID': X_IG_APP_ID,
+          'X-FB-LSD': lsdToken,
+          'X-IG-Max-Touch-Points': '0',
+          'X-FB-Friendly-Name': 'PolarisUserHoverCardContentV2Query',
+          dpr: '0.9',
+          'sec-ch-prefers-color-scheme': 'dark',
+          DNT: '1',
+          'sec-ch-ua-platform-version': '"15.0.0"',
+          Accept: '*/*',
+          Origin: 'https://www.instagram.com',
+          'Sec-Fetch-Site': 'same-origin',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Dest': 'empty',
+          Referer: referer,
+          'Accept-Language': 'en-US,en;q=0.9',
+          ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
+          ...(headers?.['x-ig-www-claim'] ? { 'X-IG-WWW-Claim': headers['x-ig-www-claim'] } : {}),
+          ...(headers?.Cookie ? { Cookie: headers.Cookie } : {}),
+        },
+        timeout: 2500,
+      }
+    );
+
+    if (response.status < 200 || response.status >= 300 || !response.data) {
+      // eslint-disable-next-line no-console
+      console.warn(`[getUserFeed] hover-card profile fetch returned HTTP ${response.status}`);
+      return null;
+    }
+
+    const payload = parseInstagramGraphqlPayload(response.data);
+    const user = extractPolarisHoverCardUser(payload);
+    return user || null;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[getUserFeed] hover-card profile fallback failed for ${targetUserId}:`, err.message);
+    return null;
+  }
+}
+
+async function fetchFbDtsgToken(client, cookieHeader, targetHandle = 'accounts/edit') {
+  if (!cookieHeader) return null;
+  try {
+    const clean = normalizeUsername(targetHandle);
+    const profilePath =
+      !clean || clean === 'accounts/edit' || /^\d+$/.test(clean)
+        ? '/accounts/edit/'
+        : `/${encodeURIComponent(clean)}/`;
+    const response = await client.get(`https://www.instagram.com${profilePath}`, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+          '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Cookie: cookieHeader,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      responseType: 'text',
+      transformResponse: [(data) => data],
+      timeout: 2500,
+    });
+    const html = String(response.data || '');
+    return (
+      /"DTSGInitialData"\s*,\s*\[]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/i.exec(html)?.[1] ||
+      /name=["']fb_dtsg["']\s+value=["']([^"']+)["']/i.exec(html)?.[1] ||
+      /"token"\s*:\s*"([A-Za-z0-9_-]+:[0-9]+:[0-9]+)"/i.exec(html)?.[1] ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function parseInstagramGraphqlPayload(data) {
+  if (!data) return null;
+  if (typeof data !== 'string') return data;
+  const clean = data.trim().replace(/^for\s*\(;;\);/, '');
+  if (!clean || clean.startsWith('<')) return null;
+  return clean ? JSON.parse(clean) : null;
+}
+
+function extractPolarisHoverCardUser(payload) {
+  return (
+    payload?.data?.xig_user_by_igid_v2?.user_dict ||
+    payload?.data?.user ||
+    payload?.user ||
+    null
+  );
+}
+
+function createJazoest(value = '') {
+  let sum = 0;
+  for (const ch of String(value)) sum += ch.charCodeAt(0);
+  return `2${sum}`;
 }
 
 async function fetchOpenGraphProfile(client, username) {
@@ -490,7 +574,11 @@ async function getProfileFrom(client, url, headers, extract, timeoutMs = 2500) {
  * response stream through a proxy almost always means Instagram blocked the
  * proxy IP (common with datacenter proxies).
  */
-function humanizeFetchError(message = '') {
+function humanizeFetchError(message = '', err = null) {
+  const instagram = err?.instagram;
+  if (instagram?.spam) {
+    return `Instagram flagged the feed request as spam (HTTP ${err?.status || 400}).`;
+  }
   const m = String(message).toLowerCase();
   if (m.includes('stream has been aborted') || m.includes('aborted') || m.includes('econnreset')) {
     return 'Instagram reset the connection — the proxy IP is likely blocked ' +
@@ -508,9 +596,11 @@ function humanizeFetchError(message = '') {
 
 module.exports = {
   getUserFeed,
-  getIgramFallbackHandle,
-  isIgramFallbackEnabled,
-  isHubFallbackEnabled,
-  getConvertedFallbackSources,
-  canUseConvertedFallback,
+  fetchPolarisHoverCardProfile,
+  parseInstagramGraphqlPayload,
+  extractPolarisHoverCardUser,
+  fetchFbDtsgToken,
+  createJazoest,
+  hasProfileCounts,
+  profileFromFeed,
 };

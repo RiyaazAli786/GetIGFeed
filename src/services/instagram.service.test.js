@@ -2,34 +2,40 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const {
-  getIgramFallbackHandle,
-  isIgramFallbackEnabled,
-  getConvertedFallbackSources,
-  canUseConvertedFallback,
-} = require('./instagram.service');
 
-test('user-feed IGram fallback only accepts public handles', () => {
-  assert.strictEqual(getIgramFallbackHandle('nasa'), 'nasa');
-  assert.strictEqual(getIgramFallbackHandle('@nasa'), 'nasa');
-  assert.strictEqual(getIgramFallbackHandle('https://www.instagram.com/nasa/'), 'nasa');
-  assert.strictEqual(getIgramFallbackHandle('123456789'), null);
-  assert.strictEqual(getIgramFallbackHandle('not a handle'), null);
+const { hasProfileCounts, profileFromFeed } = require('./instagram.service');
+
+test('hasProfileCounts treats 0/0 counts as incomplete', () => {
+  assert.strictEqual(
+    hasProfileCounts({
+      follower_count: 0,
+      following_count: 0,
+    }),
+    false
+  );
 });
 
-test('user-feed IGram fallback honors per-request disable flag', () => {
-  assert.strictEqual(isIgramFallbackEnabled({ igramFallback: false }), false);
-  assert.strictEqual(isIgramFallbackEnabled({ igramFallback: 'off' }), false);
-  assert.strictEqual(isIgramFallbackEnabled({ igramFallback: true }), true);
+test('hasProfileCounts accepts non-zero profile counts', () => {
+  assert.strictEqual(
+    hasProfileCounts({
+      edge_followed_by: { count: 64 },
+      edge_follow: { count: 124 },
+    }),
+    true
+  );
 });
 
-test('user-feed hub fallback order stays converted and deterministic', () => {
-  assert.deepStrictEqual(getConvertedFallbackSources({ igramFallback: true, hubFallback: true }), [
-    'igram', 'fastdl', 'anonyig',
-  ]);
-  assert.deepStrictEqual(getConvertedFallbackSources({ igramFallback: false, hubFallback: true }), [
-    'fastdl', 'anonyig',
-  ]);
-  assert.strictEqual(canUseConvertedFallback('nasa', { igramFallback: false, hubFallback: true }), true);
-  assert.strictEqual(canUseConvertedFallback('1234567', { igramFallback: true, hubFallback: true }), false);
+test('profileFromFeed prefers the requested username over unrelated feed user', () => {
+  const profile = profileFromFeed(
+    { pk_id: '1962023419', username: 'sachintendulkar', follower_count: 51681492 },
+    [
+      { user: { pk: '1962023419', username: 'sachintendulkar' } },
+      { user: { pk: '70374808999', username: 'tenxyouworld' } },
+    ],
+    'tenxyouworld'
+  );
+
+  assert.strictEqual(profile.username, 'tenxyouworld');
+  assert.strictEqual(String(profile.pk), '70374808999');
+  assert.strictEqual(profile.follower_count, undefined);
 });

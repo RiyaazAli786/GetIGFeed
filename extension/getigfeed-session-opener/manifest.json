@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "GetIGFeed Session Opener",
+  "version": "1.0.0",
+  "description": "Sets stored GetIGFeed Instagram cookies in Chrome and opens Instagram.",
+  "permissions": ["cookies", "tabs"],
+  "host_permissions": [
+    "https://feed.reelsflow.io/*",
+    "http://localhost:3000/*",
+    "https://www.instagram.com/*",
+    "https://*.instagram.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://feed.reelsflow.io/instagram-view.html*",
+        "http://localhost:3000/instagram-view.html*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

@@ -45,7 +45,7 @@ services:
 
       # Auto-lock the dashboard after this many ms of inactivity.
       - key: ADMIN_IDLE_MS
-        value: "30000"
+        value: "300000"
 
       # --- Backblaze B2 storage for the encrypted pool ------------------------
       # Persists the pool across restarts/redeploys (no disk needed). The secret

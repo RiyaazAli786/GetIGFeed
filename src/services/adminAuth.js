@@ -7,16 +7,16 @@ const crypto = require('crypto');
  *
  * A valid passcode (ADMIN_PASSCODE) exchanges for an opaque bearer token. The
  * token has a SLIDING idle expiry: every authenticated request pushes the
- * expiry forward, but 30s with no request auto-locks it server-side. The
+ * expiry forward, but 5 minutes with no request auto-locks it server-side. The
  * dashboard mirrors this with its own inactivity timer, so both the UI and the
  * API lock in step.
  *
- * Tokens live only in process memory — a restart (or 30s of silence) forces a
+ * Tokens live only in process memory — a restart (or 5 minutes of silence) forces a
  * re-entry of the passcode.
  */
 
 // Auto-lock window. Kept in sync with the dashboard's client-side timer.
-const IDLE_MS = parseInt(process.env.ADMIN_IDLE_MS || '30000', 10);
+const IDLE_MS = parseInt(process.env.ADMIN_IDLE_MS || '300000', 10);
 
 /** token -> expiresAt (epoch ms) */
 const tokens = new Map();

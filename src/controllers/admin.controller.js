@@ -9,6 +9,7 @@ const storyService = require('../services/instagramStory.service');
 const { flag, detailsById } = require('../services/feedStoryMerge');
 const { checkProxy } = require('../services/proxyCheck');
 const { logFeed } = require('../store/feedLog');
+const { setFeedResolution } = require('../utils/feedResolution');
 
 /**
  * Admin dashboard endpoints: a passcode gate plus full CRUD over the encrypted
@@ -41,6 +42,84 @@ function serveDashboard(req, res) {
 /** GET /instagram-view.html — serve the Instagram viewer wrapper (uses localStorage for auth). */
 function serveInstagramView(req, res) {
   res.sendFile(path.join(__dirname, '..', 'public', 'instagram-view.html'));
+}
+
+function prepareInstagramHtml(html) {
+  const base = '<base href="https://www.instagram.com/"><meta name="referrer" content="no-referrer">';
+  if (typeof html !== 'string') return html;
+  if (/<base\s/i.test(html)) return html;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head([^>]*)>/i, `<head$1>${base}`);
+  }
+  return `${base}${html}`;
+}
+
+function instagramCookieArrayFromSecret(secret) {
+  let cookieArray = secret.cookies || [];
+  if (!Array.isArray(cookieArray) || cookieArray.length === 0) {
+    cookieArray = [];
+    if (secret.sessionid) {
+      cookieArray.push({ name: 'sessionid', value: secret.sessionid });
+    }
+    if (secret.csrftoken) {
+      cookieArray.push({ name: 'csrftoken', value: secret.csrftoken });
+    }
+    if (secret.dsUserId) {
+      cookieArray.push({ name: 'ds_user_id', value: secret.dsUserId });
+    }
+    if (secret.mid) {
+      cookieArray.push({ name: 'mid', value: secret.mid });
+    }
+  }
+
+  return cookieArray
+    .filter((cookie) => cookie && cookie.name && cookie.value !== undefined && cookie.value !== null)
+    .map((cookie) => ({
+      ...cookie,
+      name: String(cookie.name),
+      value: String(cookie.value),
+      domain: cookie.domain || '.instagram.com',
+      path: cookie.path || '/',
+      secure: cookie.secure !== false,
+    }));
+}
+
+function getSessionSecretForRequest(req, res) {
+  const sessionId = req.params?.id || req.query?.sessionId;
+  if (!sessionId) {
+    res.status(400).json({ success: false, error: 'sessionId is required.' });
+    return null;
+  }
+
+  let secret;
+  try {
+    secret = poolStore.getSessionSecret(sessionId);
+  } catch (e) {
+    if (e.code === 'DECRYPT_FAILED') {
+      res.status(500).json({ success: false, error: e.message });
+      return null;
+    }
+    throw e;
+  }
+  if (!secret) {
+    const sessions = poolStore.listSessions();
+    if (sessions.length === 1 && sessions[0]?.id && sessions[0].id !== sessionId) {
+      try {
+        secret = poolStore.getSessionSecret(sessions[0].id);
+      } catch (e) {
+        if (e.code === 'DECRYPT_FAILED') {
+          res.status(500).json({ success: false, error: e.message });
+          return null;
+        }
+        throw e;
+      }
+    }
+  }
+  if (!secret) {
+    res.status(404).json({ success: false, error: 'Session not found.' });
+    return null;
+  }
+  return secret;
 }
 
 /** GET /admin/status — is the dashboard configured? (no auth) */
@@ -110,6 +189,10 @@ async function fetchUserFeed(req, res, next) {
       account = poolStore.buildAccount({ authToken: inlineAuth, csrfToken, proxy });
     }
     if (!account && poolStore.listSessions().length === 0) {
+      setFeedResolution(res, {
+        resolvedFrom: 'Failed (No auth)',
+        error: 'No auth available — add a session, or provide an authToken.',
+      });
       return res.status(400).json({
         success: false,
         error: 'No auth available — add a session, or provide an authToken.',
@@ -125,10 +208,21 @@ async function fetchUserFeed(req, res, next) {
     const user = result?.data?.user || {};
     const edges = user?.edge_owner_to_timeline_media?.edges || [];
 
-    logFeed({
+    const logFile = logFeed({
       userId,
       request: { source: inlineAuth || proxy ? 'inline' : 'pool', via: 'admin' },
       result,
+    });
+
+    setFeedResolution(res, {
+      resolvedFrom: 'Instagram Private API',
+      resolvedPath: `/api/v1/feed/user/${encodeURIComponent(userId)}/?count=12`,
+      authSource: inlineAuth || proxy ? 'inline' : 'pool',
+      proxy: proxy ? 'custom' : 'direct / pool',
+      logFile: logFile || undefined,
+      details: {
+        via: 'admin',
+      },
     });
 
     return res.json({
@@ -145,6 +239,10 @@ async function fetchUserFeed(req, res, next) {
       result,
     });
   } catch (err) {
+    setFeedResolution(res, {
+      resolvedFrom: 'Failed (Error)',
+      error: err.message,
+    });
     return next(err);
   }
 }
@@ -247,6 +345,22 @@ function listSessions(req, res, next) {
   try {
     const sessions = poolStore.listSessions();
     return res.json({ success: true, count: sessions.length, sessions });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+function getSessionCookies(req, res, next) {
+  try {
+    const secret = getSessionSecretForRequest(req, res);
+    if (!secret) return undefined;
+    return res.json({
+      success: true,
+      sessionId: secret.id,
+      dsUserId: secret.dsUserId || null,
+      requestedSessionId: req.params?.id || req.query?.sessionId || null,
+      cookies: instagramCookieArrayFromSecret(secret),
+    });
   } catch (err) {
     return next(err);
   }
@@ -377,45 +491,9 @@ async function deleteProxy(req, res, next) {
  */
 async function checkInstagramSession(req, res, next) {
   try {
-    const sessionId = req.query?.sessionId;
-    if (!sessionId) {
-      return res.status(400).json({ success: false, error: 'sessionId is required.' });
-    }
-
-    // Retrieve the session from the pool
-    let secret;
-    try {
-      secret = poolStore.getSessionSecret(sessionId);
-    } catch (e) {
-      if (e.code === 'DECRYPT_FAILED') {
-        return res.status(500).json({ success: false, error: e.message });
-      }
-      throw e;
-    }
-    if (!secret) {
-      return res.status(404).json({ success: false, error: 'Session not found.' });
-    }
-
-    // Build cookies array from the session
-    let cookieArray = secret.cookies || [];
-    if (!Array.isArray(cookieArray) || cookieArray.length === 0) {
-      cookieArray = [];
-      if (secret.sessionid) {
-        const decodedSessionid = secret.sessionid.includes('%') 
-          ? decodeURIComponent(secret.sessionid) 
-          : secret.sessionid;
-        cookieArray.push({ name: 'sessionid', value: decodedSessionid });
-      }
-      if (secret.csrftoken) {
-        cookieArray.push({ name: 'csrftoken', value: secret.csrftoken });
-      }
-      if (secret.dsUserId) {
-        cookieArray.push({ name: 'ds_user_id', value: secret.dsUserId });
-      }
-      if (secret.mid) {
-        cookieArray.push({ name: 'mid', value: secret.mid });
-      }
-    }
+    const secret = getSessionSecretForRequest(req, res);
+    if (!secret) return undefined;
+    const cookieArray = instagramCookieArrayFromSecret(secret);
 
     const axios = require('axios');
     const { CookieJar } = require('tough-cookie');
@@ -494,47 +572,9 @@ async function checkInstagramSession(req, res, next) {
  */
 async function proxyInstagram(req, res, next) {
   try {
-    const sessionId = req.query?.sessionId;
-    if (!sessionId) {
-      return res.status(400).json({ success: false, error: 'sessionId is required.' });
-    }
-
-    // Retrieve the session from the pool
-    let secret;
-    try {
-      secret = poolStore.getSessionSecret(sessionId);
-    } catch (e) {
-      if (e.code === 'DECRYPT_FAILED') {
-        return res.status(500).json({ success: false, error: e.message });
-      }
-      throw e;
-    }
-    if (!secret) {
-      return res.status(404).json({ success: false, error: 'Session not found.' });
-    }
-
-    // Build cookies array from the session
-    let cookieArray = secret.cookies || [];
-    if (!Array.isArray(cookieArray) || cookieArray.length === 0) {
-      // Build cookies from sessionid, csrftoken, dsUserId, mid
-      cookieArray = [];
-      if (secret.sessionid) {
-        // Decode URL-encoded sessionid if needed
-        const decodedSessionid = secret.sessionid.includes('%') 
-          ? decodeURIComponent(secret.sessionid) 
-          : secret.sessionid;
-        cookieArray.push({ name: 'sessionid', value: decodedSessionid });
-      }
-      if (secret.csrftoken) {
-        cookieArray.push({ name: 'csrftoken', value: secret.csrftoken });
-      }
-      if (secret.dsUserId) {
-        cookieArray.push({ name: 'ds_user_id', value: secret.dsUserId });
-      }
-      if (secret.mid) {
-        cookieArray.push({ name: 'mid', value: secret.mid });
-      }
-    }
+    const secret = getSessionSecretForRequest(req, res);
+    if (!secret) return undefined;
+    const cookieArray = instagramCookieArrayFromSecret(secret);
 
     // Use axios with a proper cookie jar to handle redirects
     const axios = require('axios');
@@ -586,9 +626,11 @@ async function proxyInstagram(req, res, next) {
       console.log('[Instagram proxy] Success - status', response.status);
       console.log('[Instagram proxy] Cookies used:', cookieArray.map(c => c.name).join(', '));
       
-      // Forward response to client
+      // Forward response to client. The viewer renders this as an iframe
+      // srcdoc, so relative Instagram asset URLs need an explicit base.
       res.set('Content-Type', response.headers['content-type'] || 'text/html; charset=utf-8');
-      res.send(response.data);
+      res.set('Referrer-Policy', 'no-referrer');
+      res.send(prepareInstagramHtml(response.data));
     } catch (err) {
       console.error('[Instagram proxy error]', {
         message: err.message,
@@ -619,6 +661,7 @@ module.exports = {
   listSessions,
   addSessions,
   updateSession,
+  getSessionCookies,
   deleteSession,
   listProxies,
   addProxies,

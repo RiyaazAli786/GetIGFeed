@@ -136,6 +136,18 @@ const run = async (fn) => {
   }
 };
 
+const runWithOptions = async (opts, fn) => {
+  if (!opts || opts.proxy === undefined) return run(fn);
+  const scopedClient = new FastDL({ proxy: opts.proxy });
+  try {
+    return await fn(scopedClient);
+  } catch (err) {
+    throw toHttpError(err);
+  } finally {
+    scopedClient.close();
+  }
+};
+
 /** Convert/fetch media items for a single URL */
 const convert = (url) => {
   const validated = normalizeInput(url);
@@ -149,7 +161,7 @@ const getConvertedFeed = (handle, opts = {}) => {
   const username = normalizeUsername(handle);
   const pages = parseInt(opts.pages, 10) || 1;
   const limit = parseInt(opts.highlightDetailLimit, 10);
-  return run((ig) =>
+  return runWithOptions(opts, (ig) =>
     buildConvertedFeed(ig, username, {
       pages,
       includeStories: opts.includeStories !== false,

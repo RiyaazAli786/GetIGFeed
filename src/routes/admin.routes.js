@@ -31,6 +31,7 @@ router.get('/highlight-details/:highlightId', admin.fetchHighlightDetails);
 // Sessions CRUD (token-gated).
 router.get('/sessions', requireAuth, admin.listSessions);
 router.post('/sessions', requireAuth, admin.addSessions);
+router.get('/sessions/:id/cookies', requireAuth, admin.getSessionCookies);
 router.put('/sessions/:id', requireAuth, admin.updateSession);
 router.delete('/sessions/:id', requireAuth, admin.deleteSession);
 router.delete('/sessions', requireAuth, admin.deleteSession); // clear all
