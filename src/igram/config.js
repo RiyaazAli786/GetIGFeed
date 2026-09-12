@@ -8,7 +8,7 @@ const int = (value, fallback) => {
 module.exports = {
   // The worker hub captured from IGram's profile/highlight viewer. Keeping this
   // configurable makes a hub migration an environment change rather than code.
-  workerHub: process.env.IGRAM_WORKER_HUB || 'https://api-wn.igram.world',
+  workerHub: process.env.IGRAM_WORKER_HUB || 'https://api-wh.igram.world',
   siteOrigin: process.env.IGRAM_SITE_ORIGIN || 'https://igram.world',
   timeoutMs: int(process.env.IGRAM_TIMEOUT_MS, 20000),
   proxy: process.env.IGRAM_PROXY || null,

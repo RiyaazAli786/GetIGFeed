@@ -8,7 +8,7 @@ const service = require('./service');
 const { buildConvertedFeed } = require('../fastdl/convertedFeed');
 
 test('IGram configuration and client methods', () => {
-  assert.strictEqual(config.workerHub, 'https://api-wn.igram.world');
+  assert.strictEqual(config.workerHub, 'https://api-wh.igram.world');
   const client = new IGram();
   assert.strictEqual(typeof client.userInfo, 'function');
   assert.strictEqual(typeof client.highlightStoriesRaw, 'function');
