@@ -75,6 +75,9 @@ services:
       # Feed tuning (optional; defaults shown).
       - key: FEED_PAGE_COUNT
         value: "12"
+      # /api/user-feed fallback order. Providers are tried left to right.
+      - key: FEED_FALLBACK_PROVIDERS
+        value: igram,fastdl,anonyig
       - key: CSRF_MAX_USES
         value: "10"
 
