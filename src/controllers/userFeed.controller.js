@@ -1,6 +1,11 @@
 'use strict';
 
-const { getUserFeed } = require('../services/instagram.service');
+const {
+  getUserFeed,
+  canUseConvertedFallback,
+  isIgramFallbackEnabled,
+  isHubFallbackEnabled,
+} = require('../services/instagram.service');
 const poolStore = require('../store/poolStore');
 const { logFeedAsync } = require('../store/feedLog');
 
@@ -30,7 +35,8 @@ const FEED_CACHE_DEFAULT =
  *   // --- stories & highlights (merged into the same response) ---
  *   "includeStories": true,          // default from FEED_INCLUDE_STORIES
  *   "includeHighlightDetails": true, // expand each highlight bubble
- *   "highlightDetailLimit": 10       // 0 = every highlight
+ *   "highlightDetailLimit": 10,      // 0 = every highlight
+ *   "igramFallback": true            // public-handle fallback; true by default
  * }
  *
  * Resolution order for auth/proxy:
@@ -70,6 +76,10 @@ async function postUserFeed(req, res, next) {
       bypassCache,
       useCache,
       cache,
+      igramFallback,
+      useIgramFallback,
+      hubFallback,
+      useHubFallback,
     } = src;
     const feedMaxId = maxId ?? max_id ?? null;
     const resolvedIncludeStories =
@@ -100,8 +110,20 @@ async function postUserFeed(req, res, next) {
       });
     }
 
-    // If still nothing and the pool is empty, there is no way to authenticate.
-    if (!account && poolStore.listSessions().length === 0) {
+    // A public handle can also use an independent converted-feed hub fallback.
+    // Numeric IDs still need a session because no public handle is available to
+    // send to that hub.
+    const requestedIgramFallback = igramFallback ?? useIgramFallback;
+    const requestedHubFallback = hubFallback ?? useHubFallback;
+    const fallbackOptions = {
+      igramFallback: requestedIgramFallback,
+      hubFallback: requestedHubFallback,
+    };
+    const canUseHubFallback = canUseConvertedFallback(userId, fallbackOptions);
+
+    // If still nothing and the pool is empty, a hub is the only remaining path
+    // for a public handle. Otherwise retain the previous validation error.
+    if (!account && poolStore.listSessions().length === 0 && !canUseHubFallback) {
       return res.status(400).json({
         success: false,
         error:
@@ -130,6 +152,8 @@ async function postUserFeed(req, res, next) {
       includeStories: resolvedIncludeStories,
       includeHighlightDetails,
       highlightDetailLimit,
+      igramFallback: requestedIgramFallback,
+      hubFallback: requestedHubFallback,
     });
 
     if (allowCache) {
@@ -151,6 +175,8 @@ async function postUserFeed(req, res, next) {
       includeStories: resolvedIncludeStories,
       includeHighlightDetails,
       highlightDetailLimit,
+      igramFallback: requestedIgramFallback,
+      hubFallback: requestedHubFallback,
     });
 
     // Success = at least one post in the web_profile_info edges.
@@ -173,6 +199,8 @@ async function postUserFeed(req, res, next) {
         authTokenProvided: Boolean(inlineAuth),
         proxyProvided: Boolean(proxy),
         usedDominatorAccount: Boolean(dominatorAccount),
+        igramFallbackEnabled: isIgramFallbackEnabled({ igramFallback: requestedIgramFallback }),
+        hubFallbackEnabled: isHubFallbackEnabled({ hubFallback: requestedHubFallback }),
         source: dominatorAccount
           ? 'dominatorAccount'
           : inlineAuth || proxy

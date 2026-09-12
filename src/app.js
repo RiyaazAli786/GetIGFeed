@@ -12,6 +12,7 @@ const healthRoutes = require('./routes/health.routes');
 const adminController = require('./controllers/admin.controller');
 const anonyigRoutes = require('./anonyig/routes');
 const fastdlRoutes = require('./fastdl/routes');
+const igramRoutes = require('./igram/routes');
 const graphqlRoutes = require('./graphql/routes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
@@ -42,6 +43,8 @@ app.use('/api/instagram', storyRoutes);
 app.use('/api/anonyig', anonyigRoutes);
 // Single hit download and diagnostics for fastdl.app integration (src/fastdl).
 app.use('/api/fastdl', fastdlRoutes);
+// IGram profile-viewer worker hub, including highlight stories.
+app.use('/api/igram', igramRoutes);
 // GraphQL timeline media fetch via direct doc_id query (src/graphql).
 app.use('/api/graphql', graphqlRoutes);
 

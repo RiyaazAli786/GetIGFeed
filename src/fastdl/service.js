@@ -152,6 +152,7 @@ const getConvertedFeed = (handle, opts = {}) => {
   return run((ig) =>
     buildConvertedFeed(ig, username, {
       pages,
+      includeStories: opts.includeStories !== false,
       includeHighlightDetails: opts.includeHighlightDetails !== false,
       highlightDetailLimit: Number.isNaN(limit) ? 0 : Math.max(0, limit),
     })

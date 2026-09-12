@@ -19,6 +19,64 @@ const {
   PAGE_COUNT,
 } = require('../config/constants');
 
+// IGram is an independent worker-hub fallback for public profile handles. It
+// is deliberately enabled by default, but can be disabled globally or per
+// request when only the authenticated Instagram-private-API result is wanted.
+const IGRAM_FALLBACK_DEFAULT = process.env.USER_FEED_IGRAM_FALLBACK !== 'false';
+const HUB_FALLBACK_DEFAULT = process.env.USER_FEED_HUB_FALLBACK !== 'false';
+
+function bool(value, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  return !['false', '0', 'no', 'off'].includes(String(value).trim().toLowerCase());
+}
+
+function isIgramFallbackEnabled(opts = {}) {
+  return bool(opts.igramFallback, IGRAM_FALLBACK_DEFAULT);
+}
+
+function isHubFallbackEnabled(opts = {}) {
+  return bool(opts.hubFallback, HUB_FALLBACK_DEFAULT);
+}
+
+/** Enabled converted-feed fallback sources, in their deterministic order. */
+function getConvertedFallbackSources(opts = {}) {
+  const sources = [];
+  if (isIgramFallbackEnabled(opts)) sources.push('igram');
+  if (isHubFallbackEnabled(opts)) sources.push('fastdl', 'anonyig');
+  return sources;
+}
+
+function canUseConvertedFallback(userId, opts = {}) {
+  return Boolean(getIgramFallbackHandle(userId)) && getConvertedFallbackSources(opts).length > 0;
+}
+
+async function fetchConvertedFallback(handle, storyOptions, opts = {}) {
+  const attempts = [];
+  const loaders = {
+    igram: () => require('../igram/service'),
+    fastdl: () => require('../fastdl/service'),
+    anonyig: () => require('../anonyig/service'),
+  };
+
+  for (const source of getConvertedFallbackSources(opts)) {
+    try {
+      const result = await loaders[source]().getConvertedFeed(handle, {
+        pages: 1,
+        includeStories: storyOptions.enabled,
+        includeHighlightDetails: storyOptions.includeHighlightDetails,
+        highlightDetailLimit: storyOptions.highlightDetailLimit,
+      });
+      const edges = result?.data?.user?.edge_owner_to_timeline_media?.edges || [];
+      if (edges.length) return { result, source, attempts };
+      attempts.push({ source, error: 'No public posts returned.' });
+    } catch (err) {
+      attempts.push({ source, error: err.message || 'Fallback request failed.' });
+    }
+  }
+  return { result: null, source: null, attempts };
+}
+
 /**
  * Fetch only the first page of an Instagram user feed (the most recent
  * PAGE_COUNT posts — 12 by default) and return it in the web_profile_info
@@ -56,6 +114,7 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
   let hasMore = false;
   let errorMessage = null;
   let profile = null;
+  let igramFallback = null;
 
   // Hydrate any missing cookies/proxy from the encrypted pool. Session and
   // proxy secrets are decrypted here, at the point of use.
@@ -134,6 +193,39 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     errorMessage = humanizeFetchError(err.message);
   }
 
+  // The private API can fail because a pool session expired, the proxy was
+  // blocked, or the account has no session configured at all. For a public
+  // handle, try each independent converted-feed hub before returning empty.
+  // Do not use hubs for a cursor page: their cursors are upstream-specific.
+  const fallbackHandle = getIgramFallbackHandle(profile?.username || inputHandle);
+  if (!posts.length && !maxId && fallbackHandle && getConvertedFallbackSources(opts).length) {
+    const fallback = await fetchConvertedFallback(fallbackHandle, storyOptions, opts);
+    if (fallback.result) {
+      const result = fallback.result;
+      // /api/user-feed only emits story/highlight nodes when explicitly
+      // requested. The standalone hub contracts keep them by default.
+      if (!storyOptions.enabled) {
+        delete result.stories;
+        delete result.highlights;
+        delete result.highlight_details;
+      }
+      result.fallback = {
+        used: true,
+        source: fallback.source,
+        primaryError: errorMessage || 'Instagram private API returned no posts.',
+        attempts: fallback.attempts,
+      };
+      return result;
+    }
+    if (fallback.attempts.length) {
+      igramFallback = {
+        attempted: true,
+        sources: fallback.attempts,
+        error: fallback.attempts[fallback.attempts.length - 1].error,
+      };
+    }
+  }
+
   // Convert feed/user items → web_profile_info response shape.
   const out = buildWebProfileResponse(posts, {
     userId: numericPk(profile?.pk_id, profile?.pk, profile?.id, inputUser) || inputUser,
@@ -142,9 +234,12 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     count: pickCount(profile, 'media_count', 'edge_owner_to_timeline_media') ?? posts.length,
     user: profile,
   });
+  // Keep the winning-source marker consistent with converted hub responses.
+  out.source = 'instagram';
   // Surface a diagnostic only when nothing came back, so callers/UI can explain
   // an empty feed instead of showing a bare "0 posts".
   if (!posts.length && errorMessage) out.error = errorMessage;
+  if (igramFallback) out.fallback = igramFallback;
 
   // Stories + highlights as their own nodes on the same response.
   if (storyOptions.enabled) {
@@ -189,6 +284,12 @@ function normalizeUsername(value) {
     // Fall through to raw handle normalization.
   }
   return raw.replace(/^@/, '').split(/[/?#]/)[0].trim();
+}
+
+/** Return a valid public-profile handle, or null for numeric ids/invalid input. */
+function getIgramFallbackHandle(value) {
+  const handle = normalizeUsername(value);
+  return /^[A-Za-z0-9._]{1,30}$/.test(handle) && !/^\d+$/.test(handle) ? handle : null;
 }
 
 async function resolveUsernamePk(username) {
@@ -405,4 +506,11 @@ function humanizeFetchError(message = '') {
   return message || 'request failed';
 }
 
-module.exports = { getUserFeed };
+module.exports = {
+  getUserFeed,
+  getIgramFallbackHandle,
+  isIgramFallbackEnabled,
+  isHubFallbackEnabled,
+  getConvertedFallbackSources,
+  canUseConvertedFallback,
+};

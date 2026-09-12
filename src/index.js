@@ -7,6 +7,7 @@ const poolStore = require('./store/poolStore');
 const { getBackend } = require('./store/poolBackend');
 const anonyig = require('./anonyig/service');
 const fastdl = require('./fastdl/service');
+const igram = require('./igram/service');
 
 const PORT = process.env.PORT || 3000;
 
@@ -53,6 +54,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     anonyig.close();
     // Same for fastdl module.
     fastdl.close();
+    igram.close();
     server.close(() => process.exit(0));
   });
 }

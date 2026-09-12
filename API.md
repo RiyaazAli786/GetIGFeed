@@ -86,6 +86,9 @@ Every endpoint in the project, with all accepted request-payload formats.
 | GET | `/api/fastdl/:username` | — | `?pages=&includeHighlightDetails=&highlightDetailLimit=` |
 | GET | `/api/fastdl/highlights/:highlightId` | — | none (stories inside one highlight bubble) |
 | GET | `/api/fastdl/status` | — | none (diagnostics: host reachability + chunk state) |
+| GET/POST | `/api/igram[/:username]` | — | IGram profile/media payload via query string or body |
+| GET | `/api/igram/highlights/:highlightId` | — | stories inside one IGram highlight bubble |
+| GET | `/api/igram/status` | — | IGram worker-hub diagnostics |
 | GET | `/api/graphql/:username` | — | [graphql payload](#graphql-payload) via path |
 | GET | `/api/graphql` | — | [graphql payload](#graphql-payload) via query string |
 | POST | `/api/graphql` | — | `{ username, first?, after? }` |
@@ -311,11 +314,24 @@ The POST JSON body:
   "maxId": null,                   // optional pagination cursor
 
   // ---- stories & highlights (merged into the same response) ----
-  "includeStories": true,          // default: FEED_INCLUDE_STORIES (true)
+  "includeStories": true,          // default: FEED_INCLUDE_STORIES (false)
   "includeHighlightDetails": true, // default: FEED_INCLUDE_HIGHLIGHT_DETAILS (true)
-  "highlightDetailLimit": 0        // default: FEED_HIGHLIGHT_DETAIL_LIMIT (0 = every highlight)
+  "highlightDetailLimit": 0,       // default: FEED_HIGHLIGHT_DETAIL_LIMIT (0 = every highlight)
+  "igramFallback": true,           // default: USER_FEED_IGRAM_FALLBACK (true)
+  "hubFallback": true              // default: USER_FEED_HUB_FALLBACK (true)
 }
 ```
+
+For an initial request made with a public username, `/api/user-feed` first uses
+the authenticated Instagram private API. If it returns no posts, it tries the
+converted worker hubs in order: **IGram → FastDL → AnonyIG**. Every successful
+branch returns the same `web_profile_info`-compatible converted response. The
+result's `source` names the winning hub and `fallback` records the primary
+failure plus any earlier hub attempts. Set `igramFallback=false` (or
+`USER_FEED_IGRAM_FALLBACK=false`) to omit IGram; set `hubFallback=false` (or
+`USER_FEED_HUB_FALLBACK=false`) to omit FastDL and AnonyIG. Cursor (`maxId`)
+requests and numeric IDs without a resolved handle do not use worker hubs,
+because pagination and identity lookup are upstream-specific.
 
 `POST /api/user-feed` additionally accepts two optional passthrough fields:
 

@@ -2,7 +2,7 @@
 
 /**
  * convertedFeed.js — fetches user, posts, stories, highlights and highlight
- * stories from the FastDL hub, emitted in the converted JSON shape:
+ * stories from a compatible worker hub, emitted in the converted JSON shape:
  *
  *   { data: { user: … }, status, source: "fastdl", stories, highlights, highlight_details }
  */
@@ -205,7 +205,7 @@ async function collectHighlights(ig, username, userId, { withDetails, limit, con
     try {
       const stories = await ig.highlightStoriesRaw(tray.id);
       const items = (stories?.result || []).map(toHighlightItem);
-      return { ...bubble, source: 'fastdl', count: items.length, items, error: null };
+      return { ...bubble, source: ig.source || 'fastdl', count: items.length, items, error: null };
     } catch (err) {
       return { ...bubble, source: null, count: 0, items: [], error: err.message };
     }
@@ -217,6 +217,10 @@ async function collectHighlights(ig, username, userId, { withDetails, limit, con
 async function buildConvertedFeed(ig, username, opts = {}) {
   const {
     pages = 1,
+    // FastDL/IGram's standalone routes historically include these by default.
+    // Callers embedding the result in /api/user-feed can opt out to preserve
+    // that endpoint's includeStories contract.
+    includeStories = true,
     includeHighlightDetails = true,
     highlightDetailLimit = 0,
     highlightDetailConcurrency = ig.concurrency || 4,
@@ -225,7 +229,8 @@ async function buildConvertedFeed(ig, username, opts = {}) {
   const profile = await ig.userInfo(username);
   const user = profile?.result?.[0]?.user;
   if (!user) {
-    throw new FastDLError(`no user data for "${username}"`, {
+    const UpstreamError = ig.ErrorType || FastDLError;
+    throw new UpstreamError(`no user data for "${username}"`, {
       code: 'USER_NOT_FOUND',
       endpoint: 'userInfo',
       body: profile,
@@ -241,21 +246,25 @@ async function buildConvertedFeed(ig, username, opts = {}) {
       errors.posts = err.message;
       return { edges: [], pageInfo: null };
     }),
-    ig
-      .storiesRaw(username)
-      .then((payload) => (payload?.result || []).map((item) => toStoryItem(item, userNode.username)))
-      .catch((err) => {
-        errors.stories = err.message;
-        return [];
-      }),
-    collectHighlights(ig, username, userNode.id, {
-      withDetails: includeHighlightDetails,
-      limit: highlightDetailLimit,
-      concurrency: highlightDetailConcurrency,
-    }).catch((err) => {
-      errors.highlights = err.message;
-      return { bubbles: [], details: [], truncated: false };
-    }),
+    includeStories
+      ? ig
+          .storiesRaw(username)
+          .then((payload) => (payload?.result || []).map((item) => toStoryItem(item, userNode.username)))
+          .catch((err) => {
+            errors.stories = err.message;
+            return [];
+          })
+      : Promise.resolve([]),
+    includeStories
+      ? collectHighlights(ig, username, userNode.id, {
+          withDetails: includeHighlightDetails,
+          limit: highlightDetailLimit,
+          concurrency: highlightDetailConcurrency,
+        }).catch((err) => {
+          errors.highlights = err.message;
+          return { bubbles: [], details: [], truncated: false };
+        })
+      : Promise.resolve({ bubbles: [], details: [], truncated: false }),
   ]);
 
   const detailsById = {};
@@ -278,13 +287,13 @@ async function buildConvertedFeed(ig, username, opts = {}) {
       },
     },
     status: 'ok',
-    source: 'fastdl',
+    source: ig.source || 'fastdl',
     errors: Object.keys(errors).length ? errors : null,
 
     stories: {
       available: stories.length > 0,
       count: stories.length,
-      source: errors.stories ? null : 'fastdl',
+      source: includeStories && !errors.stories ? ig.source || 'fastdl' : null,
       error: errors.stories || null,
       items: stories,
     },
@@ -292,7 +301,7 @@ async function buildConvertedFeed(ig, username, opts = {}) {
     highlights: {
       available: highlights.bubbles.length > 0,
       count: highlights.bubbles.length,
-      source: errors.highlights ? null : 'fastdl',
+      source: includeStories && !errors.highlights ? ig.source || 'fastdl' : null,
       error: errors.highlights || null,
       items: highlights.bubbles.map((bubble) => ({
         ...bubble,
