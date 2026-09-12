@@ -2,6 +2,7 @@
 
 const anonyig = require('../anonyig/service');
 const fastdl = require('../fastdl/service');
+const igram = require('../igram/service');
 const graphql = require('../graphql/service');
 const poolStore = require('../store/poolStore');
 
@@ -14,10 +15,13 @@ const PROVIDERS = {
     includeHighlightDetails: opts.includeHighlightDetails !== false,
     highlightDetailLimit: opts.highlightDetailLimit,
   }),
+  igram: (username, opts) => igram.getConvertedFeed(username, opts),
   anonyig: (username, opts) => anonyig.getConvertedFeed(username, opts),
   fastdl: (username, opts) => fastdl.getConvertedFeed(username, opts),
 };
-const DEFAULT_PROVIDERS = ['graphql', 'anonyig', 'fastdl'];
+// GraphQL can reuse a valid pool session; IGram then provides the first
+// sessionless fallback, followed by the signed worker hubs.
+const DEFAULT_PROVIDERS = ['graphql', 'igram', 'anonyig', 'fastdl'];
 const WORKER_PROVIDERS = ['anonyig', 'fastdl'];
 let workerProviderCursor = 0;
 

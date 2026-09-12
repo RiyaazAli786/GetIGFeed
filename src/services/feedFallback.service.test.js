@@ -20,13 +20,13 @@ test('normalizeUsername rejects numeric ids because public fallbacks need handle
   assert.equal(normalizeUsername('25025320'), null);
 });
 
-test('providerList defaults to graphql, anonyig, then fastdl', () => {
-  assert.deepEqual(providerList(), ['graphql', 'anonyig', 'fastdl']);
+test('providerList defaults to graphql, IGram, anonyig, then fastdl', () => {
+  assert.deepEqual(providerList(), ['graphql', 'igram', 'anonyig', 'fastdl']);
 });
 
-test('orderedProviders alternates worker fallbacks after graphql', () => {
-  assert.deepEqual(orderedProviders(), ['graphql', 'anonyig', 'fastdl']);
-  assert.deepEqual(orderedProviders(), ['graphql', 'fastdl', 'anonyig']);
+test('orderedProviders keeps IGram before alternating worker fallbacks', () => {
+  assert.deepEqual(orderedProviders(), ['graphql', 'igram', 'anonyig', 'fastdl']);
+  assert.deepEqual(orderedProviders(), ['graphql', 'igram', 'fastdl', 'anonyig']);
 });
 
 test('shouldFallbackForPrivateResult only triggers on empty 401-like failures', () => {
