@@ -48,6 +48,9 @@ const videoOf = (item) => (Array.isArray(item?.video_versions) ? item.video_vers
 // ------------------------------------------------------------------ profile
 
 function toUserNode(user) {
+  const followers = pickCount(user, 'follower_count', 'edge_followed_by', 'followers_count', 'followers') ?? 0;
+  const following = pickCount(user, 'following_count', 'edge_follow', 'follows_count', 'following') ?? 0;
+  const mediaCount = pickCount(user, 'media_count', 'edge_owner_to_timeline_media', 'posts_count');
   return {
     id: str(user?.pk ?? user?.id ?? ''),
     username: user?.username ?? null,
@@ -56,11 +59,14 @@ function toUserNode(user) {
     is_verified: Boolean(user?.is_verified),
     profile_pic_url: user?.profile_pic_url ?? null,
     profile_pic_url_hd: user?.profile_pic_url_hd ?? user?.profile_pic_url ?? null,
+    follower_count: followers,
+    following_count: following,
+    ...(mediaCount !== null && mediaCount !== undefined ? { media_count: mediaCount } : {}),
     edge_followed_by: {
-      count: pickCount(user, 'follower_count', 'edge_followed_by', 'followers_count', 'followers') ?? 0,
+      count: followers,
     },
     edge_follow: {
-      count: pickCount(user, 'following_count', 'edge_follow', 'follows_count', 'following') ?? 0,
+      count: following,
     },
   };
 }
@@ -277,12 +283,15 @@ async function buildConvertedFeed(ig, username, opts = {}) {
     if (detail.id) detailsById[detail.id] = detail;
   }
 
+  const totalMediaCount = pickCount(user, 'media_count', 'edge_owner_to_timeline_media', 'posts_count') ?? posts.edges.length;
+
   const response = {
     data: {
       user: {
         ...userNode,
+        media_count: userNode.media_count ?? totalMediaCount,
         edge_owner_to_timeline_media: {
-          count: pickCount(user, 'media_count', 'edge_owner_to_timeline_media', 'posts_count') ?? posts.edges.length,
+          count: totalMediaCount,
           page_info: {
             has_next_page: Boolean(posts.pageInfo?.has_next_page),
             end_cursor: posts.pageInfo?.end_cursor ?? null,

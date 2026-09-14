@@ -10,6 +10,7 @@
 const http2 = require('http2');
 const zlib = require('zlib');
 const config = require('./config');
+const { getSigner } = require('./signer');
 const { parseProxy, describeProxy, maskUser, connectThroughProxy } = require('../anonyig/proxy');
 
 const BROWSER_HEADERS = {
@@ -32,6 +33,21 @@ class IGramError extends Error {
     this.body = body;
   }
 }
+
+const isSignatureError = (err) => {
+  if (!err) return false;
+  if (!(err instanceof IGramError)) return false;
+  if (err.status === 401) return true;
+  const code = String(err.code || '').toUpperCase();
+  const msg = String(err.message || '').toUpperCase();
+  return (
+    code.startsWith('REQUEST_SIGNATURE_') ||
+    code.includes('SIGNATURE') ||
+    code.includes('EXPIRED') ||
+    msg.includes('SIGNATURE') ||
+    msg.includes('EXPIRED')
+  );
+};
 
 const decompress = (buf, encoding) => {
   if (encoding === 'gzip') return zlib.gunzipSync(buf);
@@ -155,8 +171,24 @@ class IGram {
     });
   }
 
-  call(endpoint, body) { return this._post(`/api/v1/instagram/${endpoint}`, body); }
-  convert(url) { return this._post('/api/convert', { target_url: url }); }
+  async _signedPost(path, body) {
+    try {
+      const signer = await getSigner();
+      const signedBody = await signer(body);
+      return await this._post(path, signedBody);
+    } catch (err) {
+      if (!isSignatureError(err)) throw err;
+      console.warn(
+        `[igram] ${err.code || err.message || `HTTP ${err.status}`} — signing chunk expired/rejected; fetching fresh from site and mirroring to B2`
+      );
+      const signer = await getSigner({ refresh: true });
+      const signedBody = await signer(body);
+      return await this._post(path, signedBody);
+    }
+  }
+
+  call(endpoint, body) { return this._signedPost(`/api/v1/instagram/${endpoint}`, body); }
+  convert(url) { return this._signedPost('/api/convert', { url }); }
   userInfo(handle) { return this.call('userInfo', { username: username(handle) }); }
   postsPage(handle, maxId = '') { return this.call('postsV2', { username: username(handle), maxId }); }
   storiesRaw(handle) { return this.call('stories', { username: username(handle) }); }
@@ -181,4 +213,4 @@ class IGram {
   }
 }
 
-module.exports = { IGram, IGramError };
+module.exports = { IGram, IGramError, isSignatureError };

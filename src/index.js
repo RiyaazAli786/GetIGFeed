@@ -45,11 +45,42 @@ server.on('error', (err) => {
   throw err;
 });
 
+// Background verification: proactively checks that signer chunks are accepted by worker hubs.
+// If any signer chunk has expired, _signedPost automatically downloads a fresh chunk from
+// the live site and mirrors it to Backblaze B2.
+async function checkAndRefreshExpiredChunks() {
+  const providers = [
+    { name: 'fastdl', getClient: () => fastdl.getClient() },
+    { name: 'igram', getClient: () => igram.getClient() },
+    { name: 'anonyig', getClient: () => anonyig.getClient() },
+  ];
+
+  for (const { name, getClient } of providers) {
+    try {
+      await getClient().userInfo('instagram');
+    } catch (err) {
+      // Signature rejection/expiration is handled and refreshed inside _signedPost.
+      // Any non-signature error (e.g. rate limit 429) is logged at debug level.
+      if (err.status !== 200 && err.status !== 429 && err.status !== 404) {
+        console.warn(`[${name}] background chunk check: ${err.message}`);
+      }
+    }
+  }
+}
+
+const chunkCheckTimer = setTimeout(() => {
+  checkAndRefreshExpiredChunks();
+  const interval = setInterval(checkAndRefreshExpiredChunks, 2 * 60 * 60 * 1000);
+  interval.unref();
+}, 5000);
+chunkCheckTimer.unref();
+
 // Graceful shutdown
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     // eslint-disable-next-line no-console
     console.log(`\n${signal} received, shutting down...`);
+    clearTimeout(chunkCheckTimer);
     // The anonyig module keeps one long-lived HTTP/2 session open.
     anonyig.close();
     // Same for fastdl module.

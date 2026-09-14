@@ -52,9 +52,9 @@ function providerList(value = process.env.FEED_FALLBACK_PROVIDERS) {
   return names.filter((name, index) => PROVIDERS[name] && names.indexOf(name) === index);
 }
 
-function orderedProviders(value = process.env.FEED_FALLBACK_PROVIDERS) {
+function orderedProviders(value = process.env.FEED_FALLBACK_PROVIDERS, { rotate = false } = {}) {
   const providers = providerList(value);
-  if (Array.isArray(value)) return providers;
+  if (Array.isArray(value) && !rotate) return providers;
 
   const nonWorkers = providers.filter((provider) => !WORKER_PROVIDERS.includes(provider));
   const workers = WORKER_PROVIDERS.filter((provider) => providers.includes(provider));
@@ -93,7 +93,7 @@ function providerOptions(provider, opts = {}) {
     highlightDetailLimit: opts.highlightDetailLimit,
   };
 
-  if (provider === 'anonyig' || provider === 'fastdl') {
+  if (provider === 'anonyig' || provider === 'fastdl' || provider === 'igram') {
     const proxy = workerFallbackProxy(opts);
     if (proxy !== undefined) {
       options.proxy = proxy;
@@ -126,8 +126,9 @@ async function getFallbackFeed(userId, opts = {}) {
   }
 
   const failures = [];
-  for (const provider of orderedProviders(opts.providers)) {
+  for (const provider of orderedProviders(opts.providers, { rotate: !opts.explicitOrder })) {
     try {
+
       const attemptOptions = providerOptions(provider, opts);
       const result = await PROVIDERS[provider](username, attemptOptions);
       if (!hasFeedItems(result)) {
@@ -144,6 +145,7 @@ async function getFallbackFeed(userId, opts = {}) {
         fallback: {
           used: true,
           provider,
+          failedSource: opts.failedSource || null,
           triggerReason: opts.reason || null,
           // Kept for older clients; this is why fallback started, not the
           // selected provider's own error.

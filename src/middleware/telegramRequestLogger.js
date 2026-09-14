@@ -74,11 +74,118 @@ function redact(value, key = '') {
   return value;
 }
 
+function summarizeFeedResponse(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const user = obj.data?.user || obj.user;
+  if (!user) return obj;
+
+  const postEdges = user.edge_owner_to_timeline_media?.edges || [];
+  const totalCount =
+    user.edge_owner_to_timeline_media?.count ??
+    user.media_count ??
+    user.posts_count ??
+    postEdges.length;
+  const followerCount =
+    user.edge_followed_by?.count ??
+    user.follower_count ??
+    user.followers ??
+    0;
+  const followingCount =
+    user.edge_follow?.count ??
+    user.following_count ??
+    user.following ??
+    0;
+
+  const previewEdges = postEdges.slice(0, 2).map((edge) => {
+    const node = edge?.node || edge || {};
+    const captionRaw =
+      node.edge_media_to_caption?.edges?.[0]?.node?.text ||
+      node.caption?.text ||
+      node.caption ||
+      '';
+    const captionSnippet =
+      typeof captionRaw === 'string' && captionRaw.trim()
+        ? (captionRaw.trim().length > 60
+            ? `${captionRaw.trim().slice(0, 60)}...`
+            : captionRaw.trim()
+          ).replace(/\r?\n|\r/g, ' ')
+        : undefined;
+
+    return {
+      node: {
+        id: String(node.id || node.pk || ''),
+        shortcode: node.shortcode || node.code || undefined,
+        type: node.__typename || (node.is_video ? 'GraphVideo' : 'GraphImage'),
+        is_video: Boolean(node.is_video),
+        caption: captionSnippet,
+        likes: node.edge_liked_by?.count ?? node.edge_media_preview_like?.count ?? node.like_count ?? 0,
+        comments: node.edge_media_to_comment?.count ?? node.comment_count ?? 0,
+      },
+    };
+  });
+
+  const userSummary = {
+    id: user.id || user.pk,
+    username: user.username,
+    full_name: user.full_name || undefined,
+    is_private: Boolean(user.is_private),
+    is_verified: Boolean(user.is_verified),
+    profile_pic_url: user.profile_pic_url || undefined,
+    follower_count: followerCount,
+    following_count: followingCount,
+    media_count: totalCount,
+    edge_followed_by: { count: followerCount },
+    edge_follow: { count: followingCount },
+    edge_owner_to_timeline_media: {
+      count: totalCount,
+      returned: postEdges.length,
+      ...(user.edge_owner_to_timeline_media?.page_info
+        ? { page_info: user.edge_owner_to_timeline_media.page_info }
+        : {}),
+      ...(previewEdges.length ? { edges: previewEdges } : {}),
+    },
+  };
+
+  const summary = {
+    ...(obj.data ? { data: { user: userSummary } } : { user: userSummary }),
+    status: obj.status || 'ok',
+    source: obj.source || undefined,
+    stories: obj.stories?.count ?? (obj.stories?.available ? 'available' : 0),
+    highlights: obj.highlights?.count ?? (obj.highlights?.available ? 'available' : 0),
+  };
+
+  if (obj.fallback) {
+    summary.fallback = {
+      used: true,
+      provider: obj.fallback.provider,
+      failedSource: obj.fallback.failedSource || undefined,
+      triggerReason: obj.fallback.triggerReason || obj.fallback.reason || undefined,
+    };
+  }
+  if (obj.errors && Object.keys(obj.errors).length) summary.errors = obj.errors;
+  return summary;
+}
+
+function simplifyRequestInfo(info) {
+  if (!info || typeof info !== 'object') return info;
+  const out = {
+    method: info.method,
+    path: info.path,
+  };
+  if (info.ip) out.ip = String(info.ip).replace('::ffff:', '');
+  if (info.query && Object.keys(info.query).length) out.query = info.query;
+  if (info.body && Object.keys(info.body).length) out.body = info.body;
+  const ua = info.headers?.['user-agent'];
+  if (ua) out.userAgent = ua;
+  return out;
+}
+
 function compactJson(value, limit = maxBody()) {
   if (limit === 0) return '[disabled]';
   let text;
   try {
-    text = typeof value === 'string' ? value : JSON.stringify(redact(value));
+    const cleaned = redact(summarizeFeedResponse(value));
+    text = typeof cleaned === 'string' ? cleaned : JSON.stringify(cleaned);
   } catch {
     text = '[unserializable]';
   }
@@ -87,6 +194,9 @@ function compactJson(value, limit = maxBody()) {
 }
 
 function textBlock(label, value) {
+  if (label.includes('Request') && typeof value === 'object') {
+    value = simplifyRequestInfo(value);
+  }
   const text = compactJson(value);
   return `${label}: ${text || '(empty)'}`;
 }
@@ -123,20 +233,27 @@ function formatTelegramMessage({
   requestInfo,
   responseBody,
 }) {
+  const statusEmoji =
+    statusCode >= 200 && statusCode < 300
+      ? '🟢'
+      : statusCode >= 400 && statusCode < 500
+        ? '🟡'
+        : '🔴';
+
   const sections = [
-    `GetIGFeed API ${statusCode} ${method} ${url}`,
-    `Duration: ${durationMs}ms`,
+    `${statusEmoji} GetIGFeed API ${statusCode} ${method} ${url}`,
+    `⏱️ Duration: ${durationMs}ms`,
   ];
 
   if (feedResolution) {
     const feedResolutionBlock = formatFeedResolutionText(feedResolution);
     if (feedResolutionBlock) {
-      sections.push(feedResolutionBlock);
+      sections.push(`🔄 ${feedResolutionBlock}`);
     }
   }
 
-  sections.push(textBlock('Request', requestInfo));
-  sections.push(textBlock('Response', responseBody));
+  sections.push(textBlock('📥 Request', requestInfo));
+  sections.push(textBlock('📤 Response', responseBody));
 
   return sections.join('\n\n');
 }
@@ -203,6 +320,7 @@ function telegramRequestLogger(req, res, next) {
 module.exports = {
   telegramRequestLogger,
   formatTelegramMessage,
+  summarizeFeedResponse,
   sendTelegram,
   isFeedRoute,
   shouldLogPath,

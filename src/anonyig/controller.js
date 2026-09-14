@@ -157,24 +157,45 @@ async function profile(req, res, next) {
  * session, no proxy) rather than the shape.
  */
 async function convertedFeed(req, res, next) {
+  const handle = handleFrom(req);
+  const src = { ...(req.query || {}), ...(req.body || {}) };
+  const includeStoriesRaw =
+    src.includeStories ??
+    src.include_stories ??
+    src.includeStoriesAndHighlights ??
+    src.includeStoryHighlights ??
+    src.stories;
+  const includeStories = flag(includeStoriesRaw, false);
+  const opts = {
+    pages: src.pages,
+    includeStories,
+    includeHighlightDetails: flag(src.includeHighlightDetails ?? src.highlightDetails, true),
+    highlightDetailLimit: src.highlightDetailLimit,
+  };
+
   try {
-    const src = { ...(req.query || {}), ...(req.body || {}) };
-    const includeStoriesRaw =
-      src.includeStories ??
-      src.include_stories ??
-      src.includeStoriesAndHighlights ??
-      src.includeStoryHighlights ??
-      src.stories;
-    const includeStories = flag(includeStoriesRaw, false);
-    const result = await service.getConvertedFeed(handleFrom(req), {
-      pages: src.pages,
-      includeStories,
-      includeHighlightDetails: flag(src.includeHighlightDetails ?? src.highlightDetails, true),
-      highlightDetailLimit: src.highlightDetailLimit,
-    });
-    res.json(result);
-  } catch (error) {
-    next(error);
+    const result = await service.getConvertedFeed(handle, opts);
+    return res.json(result);
+  } catch (primaryError) {
+    const shouldFallback = flag(src.fallback, true);
+    if (!shouldFallback) return next(primaryError);
+
+    try {
+      console.warn(
+        `[anonyig] convertedFeed failed for "${handle}" (${primaryError.message}) — attempting fallback`
+      );
+      const fallbackService = require('../services/feedFallback.service');
+      const fallbackResult = await fallbackService.getFallbackFeed(handle, {
+        ...opts,
+        reason: primaryError.message,
+      });
+      return res.json(fallbackResult);
+    } catch (fallbackError) {
+      console.error(
+        `[anonyig] fallback also failed for "${handle}": ${fallbackError.message}`
+      );
+      return next(primaryError);
+    }
   }
 }
 

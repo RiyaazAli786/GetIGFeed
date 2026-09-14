@@ -1,24 +1,24 @@
 'use strict';
 
 /**
- * chunk.js — where the signing chunk for FastDL comes from, in priority order.
+ * chunk.js — where the signing chunk for iGram comes from, in priority order.
  *
- * It mirrors the anonyig chunk fetcher. Chunk 54 contains the site's HMAC secret,
- * so it is fetched at runtime rather than committed. Three places it can come from:
- *
- *   1. disk    — DATA_DIR/fastdl/live_link_chunk.js
+ * Chunk 909 contains iGram's HMAC signer. Three places it can come from:
+ *   1. disk    — DATA_DIR/igram/live_link_chunk.js
  *   2. B2      — B2 bucket, when B2_* is configured
- *   3. the site — https://fastdl.app/js/app.js -> the chunk 54 it points at
+ *   3. the site — https://igram.world/js/app.js -> the chunk 909 it points at
  *
- * Run `npm run fastdl:chunk` to refresh from the site and mirror to B2.
+ * Run `npm run igram:chunk` to refresh from the site and mirror to B2.
  */
 
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const config = require('./config');
 
 const ENTRY = `${config.siteOrigin}/js/app.js`;
-const SIGNING_CHUNK_ID = 54;
+const SIGNING_CHUNK_ID = 909;
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36';
@@ -48,7 +48,7 @@ const remoteConfigured = () =>
       process.env.B2_ENDPOINT
   );
 
-const remoteKey = () => process.env.B2_FASTDL_CHUNK_KEY || 'fastdl/live_link_chunk.js';
+const remoteKey = () => process.env.B2_IGRAM_CHUNK_KEY || 'igram/live_link_chunk.js';
 
 let s3 = null;
 function client() {
@@ -102,13 +102,9 @@ const describeRemote = () =>
 
 // ------------------------------------------------------------------ the site
 
-const axios = require('axios');
-const { HttpsProxyAgent } = require('https-proxy-agent');
-
 async function get(url) {
-  const proxy = config.proxy || process.env.FASTDL_PROXY || process.env.ANONYIG_PROXY || null;
+  const proxy = config.proxy || process.env.IGRAM_PROXY || process.env.ANONYIG_PROXY || null;
 
-  // Try direct fetch first
   try {
     const res = await fetch(url, {
       headers: { 'user-agent': UA, referer: `${config.siteOrigin}/` },
@@ -118,7 +114,6 @@ async function get(url) {
     if (!proxy) throw err;
   }
 
-  // If direct fetch is refused (e.g. 403/451) and proxy is available, fetch via proxy using axios
   if (proxy) {
     try {
       const agent = new HttpsProxyAgent(proxy);
@@ -136,7 +131,7 @@ async function get(url) {
       const status = err.response?.status;
       if (status === 451 || status === 403) {
         throw new Error(
-          `fastdl.app refuses this host (HTTP ${status}) — run \`npm run fastdl:chunk\` ` +
+          `igram.world refuses this host (HTTP ${status}) — run \`npm run igram:chunk\` ` +
             'somewhere it is reachable to mirror the chunk to B2, which this instance can read'
         );
       }
@@ -145,11 +140,10 @@ async function get(url) {
   }
 
   throw new Error(
-    `fastdl.app refuses this host — run \`npm run fastdl:chunk\` ` +
+    `igram.world refuses this host — run \`npm run igram:chunk\` ` +
       'somewhere it is reachable to mirror the chunk to B2, which this instance can read'
   );
 }
-
 
 function findChunkHash(entrySource, chunkId) {
   const patterns = [
@@ -163,27 +157,39 @@ function findChunkHash(entrySource, chunkId) {
   return null;
 }
 
+function patchChunkSource(raw) {
+  // Bypasses synthetic anti-bot DOM prototype throw
+  const targetPattern = /throw new\(_2HoAi\(p88YORO\(_0xH3BJ\[0x27\]\)\+_0xH3BJ\[0x28\]\)\)\(p88YORO\(0x2a5\)\+p88YORO\(0x2a6\)\+p88YORO\(0x2a7\)\+p88YORO\(0x2a8\)\+p88YORO\(0x2a9\)\+_0xH3BJ\[0x51\]\);/;
+  if (targetPattern.test(raw)) {
+    return raw.replace(
+      targetPattern,
+      '/* bypassed */ NcfkLHE[p88YORO(_0xH3BJ[0xf5])]=_0xH3BJ[0x58];break;'
+    );
+  }
+  return raw;
+}
+
 async function download() {
   const entry = await get(ENTRY);
   if (!entry.includes('link.chunk')) {
     throw new Error(
-      'fastdl entry bundle no longer references "link.chunk" — the site\'s build ' +
+      'igram entry bundle no longer references "link.chunk" — the site\'s build ' +
         `layout changed; find the signing chunk manually and save it as ${config.chunkPath}`
     );
   }
 
   const hash = findChunkHash(entry, SIGNING_CHUNK_ID);
   if (!hash) {
-    throw new Error(`could not find a hash for chunk ${SIGNING_CHUNK_ID} in the fastdl entry bundle`);
+    throw new Error(`could not find a hash for chunk ${SIGNING_CHUNK_ID} in the igram entry bundle`);
   }
 
   const source = await get(`${config.siteOrigin}/js/link.chunk.js?ch=${hash}.js`);
 
   if (!source.includes('_s') && !source.includes('LZString')) {
-    throw new Error('downloaded file does not look like the fastdl signing chunk');
+    throw new Error('downloaded file does not look like the igram signing chunk');
   }
 
-  return source;
+  return patchChunkSource(source);
 }
 
 // ----------------------------------------------------------------- resolution
@@ -191,7 +197,7 @@ async function download() {
 function sources({ refresh = false } = {}) {
   const disk = { name: 'disk', load: async () => read() };
   const remote = { name: 'b2', load: remoteRead };
-  const site = { name: 'fastdl.app', load: download };
+  const site = { name: 'igram.world', load: download };
 
   if (refresh) return remoteConfigured() ? [site, remote] : [site];
   return remoteConfigured() ? [disk, remote, site] : [disk, site];
@@ -202,16 +208,16 @@ async function persist(source, from) {
     try {
       save(source);
     } catch (err) {
-      console.warn(`[fastdl] could not write ${config.chunkPath}: ${err.message}`);
+      console.warn(`[igram] could not write ${config.chunkPath}: ${err.message}`);
     }
   }
 
   if (from !== 'b2' && remoteConfigured()) {
     try {
       await remoteWrite(source);
-      console.log(`[fastdl] mirrored the signing chunk to ${describeRemote()}`);
+      console.log(`[igram] mirrored the signing chunk to ${describeRemote()}`);
     } catch (err) {
-      console.warn(`[fastdl] could not mirror the chunk to B2: ${err.message}`);
+      console.warn(`[igram] could not mirror the chunk to B2: ${err.message}`);
     }
   }
 }
@@ -228,14 +234,15 @@ module.exports = {
   describeRemote,
   entryUrl: ENTRY,
   path: config.chunkPath,
+  patchChunkSource,
 };
 
-// CLI: npm run fastdl:chunk — refresh from the site and mirror it to B2.
+// CLI: npm run igram:chunk
 if (require.main === module) {
   require('dotenv').config();
   const { getSigner } = require('./signer');
   getSigner({ refresh: true })
-    .then((sign) => sign('https://www.instagram.com/p/DbbY9pdm6Q2/'))
+    .then((sign) => sign({ username: 'instagram' }))
     .then((signed) => {
       console.log(`Stored ${config.chunkPath}`);
       if (remoteConfigured()) {
@@ -246,7 +253,7 @@ if (require.main === module) {
       console.log(`Verified: chunk signs requests (_sv ${signed._sv}, _ts ${signed._ts})`);
     })
     .catch((err) => {
-      console.error(`fastdl chunk refresh failed: ${err.message}`);
+      console.error(`igram chunk refresh failed: ${err.message}`);
       process.exitCode = 1;
     });
 }

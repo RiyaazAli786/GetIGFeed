@@ -12,12 +12,12 @@ router.post('/', controller.fetchAll);
 // Highlight details: stories inside a single bubble
 router.get('/highlights/:highlightId', controller.highlightDetails);
 
+// Diagnostics endpoint: verify connection to main site and worker hub
+router.get('/status', controller.status);
+
 // Support path-param username directly
 router.get('/:username', controller.fetchAll);
 
-
-// Diagnostics endpoint: verify connection to main site and worker hub
-router.get('/status', controller.status);
 
 
 

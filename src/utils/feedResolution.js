@@ -40,6 +40,9 @@ function formatFeedResolutionText(feedRes) {
   if (feedRes.provider) {
     lines.push(`Provider: ${feedRes.provider}`);
   }
+  if (feedRes.failedSource) {
+    lines.push(`Failed Source: ${feedRes.failedSource}`);
+  }
   if (feedRes.authSource) {
     lines.push(`Auth Source: ${feedRes.authSource}`);
   }
@@ -54,6 +57,7 @@ function formatFeedResolutionText(feedRes) {
   }
   if (feedRes.details && typeof feedRes.details === 'object') {
     for (const [key, value] of Object.entries(feedRes.details)) {
+      if (key === 'failedSource' && feedRes.failedSource) continue;
       if (value !== undefined && value !== null) {
         lines.push(`${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`);
       }

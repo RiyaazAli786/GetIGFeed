@@ -63,8 +63,20 @@ class AnonyIGError extends Error {
  * The hub answers 401 REQUEST_SIGNATURE_* when the signing chunk is stale — the
  * site redeployed and both its `_ts` build constant and secret moved on.
  */
-const isSignatureError = (err) =>
-  err instanceof AnonyIGError && typeof err.code === 'string' && err.code.startsWith('REQUEST_SIGNATURE_');
+const isSignatureError = (err) => {
+  if (!err) return false;
+  if (!(err instanceof AnonyIGError)) return false;
+  if (err.status === 401) return true;
+  const code = String(err.code || '').toUpperCase();
+  const msg = String(err.message || '').toUpperCase();
+  return (
+    code.startsWith('REQUEST_SIGNATURE_') ||
+    code.includes('SIGNATURE') ||
+    code.includes('EXPIRED') ||
+    msg.includes('SIGNATURE') ||
+    msg.includes('EXPIRED')
+  );
+};
 
 /** Run `fn` over `items` with at most `limit` in flight, preserving order. */
 async function mapLimit(items, limit, fn) {
@@ -356,7 +368,9 @@ class AnonyIG {
     } catch (err) {
       if (!isSignatureError(err)) throw err;
       // eslint-disable-next-line no-console
-      console.warn(`[anonyig] ${err.code} — refreshing the signing chunk and retrying`);
+      console.warn(
+        `[anonyig] ${err.code || err.message || `HTTP ${err.status}`} — signing chunk expired/rejected; fetching fresh from site and mirroring to B2`
+      );
       return this._post(path, await (await getSigner({ refresh: true }))(body));
     }
   }

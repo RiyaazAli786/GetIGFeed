@@ -109,3 +109,56 @@ test('setFeedResolution cleanly sets and merges res.locals.feedResolution', () =
   assert.equal(res.locals.feedResolution.resolvedFrom, 'Test Source');
   assert.equal(res.locals.feedResolution.resolvedPath, '/test/path');
 });
+
+test('summarizeFeedResponse preserves follower, following, and media counts in data.user structure', () => {
+  const { summarizeFeedResponse } = require('./telegramRequestLogger');
+  const rawFeedResponse = {
+    data: {
+      user: {
+        id: '25025320',
+        username: 'instagram',
+        full_name: 'Instagram',
+        is_private: false,
+        is_verified: true,
+        profile_pic_url: 'https://example.com/pic.jpg',
+        follower_count: 686595430,
+        following_count: 292,
+        media_count: 8584,
+        edge_followed_by: { count: 686595430 },
+        edge_follow: { count: 292 },
+        edge_owner_to_timeline_media: {
+          count: 8584,
+          page_info: { has_next_page: true, end_cursor: 'cursor123' },
+          edges: new Array(12).fill({ node: { id: 'post1', is_video: false } }),
+        },
+      },
+    },
+    status: 'ok',
+    source: 'igram',
+    stories: { available: false, count: 0 },
+    highlights: { available: false, count: 0 },
+    fallback: {
+      used: true,
+      provider: 'igram',
+      failedSource: 'Instagram Private API (Session Pool)',
+      triggerReason: 'Request failed with status 401',
+    },
+  };
+
+  const summary = summarizeFeedResponse(rawFeedResponse);
+  assert.equal(summary.status, 'ok');
+  assert.equal(summary.source, 'igram');
+  assert.ok(summary.data?.user, 'Preserves data.user structure');
+  assert.equal(summary.data.user.username, 'instagram');
+  assert.equal(summary.data.user.follower_count, 686595430);
+  assert.equal(summary.data.user.following_count, 292);
+  assert.equal(summary.data.user.media_count, 8584);
+  assert.equal(summary.data.user.edge_followed_by.count, 686595430);
+  assert.equal(summary.data.user.edge_follow.count, 292);
+  assert.equal(summary.data.user.edge_owner_to_timeline_media.count, 8584);
+  assert.equal(summary.data.user.edge_owner_to_timeline_media.returned, 12);
+  assert.equal(summary.data.user.edge_owner_to_timeline_media.edges.length, 2, 'Has short preview of first 2 posts');
+  assert.equal(summary.data.user.edge_owner_to_timeline_media.edges[0].node.id, 'post1');
+  assert.equal(summary.fallback.failedSource, 'Instagram Private API (Session Pool)');
+  assert.equal(summary.fallback.triggerReason, 'Request failed with status 401');
+});

@@ -250,6 +250,9 @@ function buildWebProfileResponse(items, meta = {}) {
         is_verified: owner.is_verified ?? false,
         profile_pic_url: owner.profile_pic_url ?? null,
         profile_pic_url_hd: hdProfilePic(owner),
+        follower_count: pickCount(owner, 'follower_count', 'edge_followed_by', 'followers_count') ?? 0,
+        following_count: pickCount(owner, 'following_count', 'edge_follow', 'follows_count') ?? 0,
+        media_count: meta.count ?? edges.length,
         // Consumers treat these as required — always emit a number rather than
         // letting a missing count surface as undefined.
         edge_followed_by: {

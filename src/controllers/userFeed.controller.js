@@ -192,6 +192,7 @@ async function postUserFeed(req, res, next) {
     }
 
     const feedSourceMode = bridgeMode();
+    let bridgeResult = null;
     if (bridgeEnabled() && !feedMaxId) {
       const isNumericId = /^\d+$/.test(String(userId).trim());
       const resolvedUsername =
@@ -202,7 +203,7 @@ async function postUserFeed(req, res, next) {
         ? String(userId).trim()
         : (src.numericUserId || src.userIdNumeric || undefined);
 
-      const bridgeResult = await fetchViaFeedPilotBridge({
+      bridgeResult = await fetchViaFeedPilotBridge({
         requestId: req.headers['x-request-id'] || undefined,
         username: resolvedUsername,
         userId: resolvedUserId,
@@ -383,9 +384,24 @@ async function postUserFeed(req, res, next) {
       shouldFallbackForPrivateResult(result);
 
     if (stillNeedsFallback && !feedMaxId) {
-      const reason = noAuthAvailable
+      const failedSource = bridgeResult?.used
+        ? 'FeedPilot Bridge'
+        : dominatorAccount
+        ? 'Dominator Account'
+        : inlineAuth || proxy
+        ? 'Inline Auth Session'
+        : noAuthAvailable
+        ? 'Session Pool (Empty - No Auth Available)'
+        : 'Instagram Private API (Session Pool)';
+
+      const rawReason = noAuthAvailable
         ? 'No auth provided and the stored session pool is empty.'
         : privateFeedError?.message || result?.error || 'Private Instagram feed returned 401.';
+
+      const reason = rawReason.includes('401')
+        ? `${rawReason} (Session cookies expired or unauthorized)`
+        : rawReason;
+
       try {
         result = await getFallbackFeed(userId, {
           pages: 1,
@@ -393,6 +409,7 @@ async function postUserFeed(req, res, next) {
           includeHighlightDetails,
           highlightDetailLimit,
           reason,
+          failedSource,
           providers: selectedFallbackProviders,
         });
       } catch (fallbackErr) {
@@ -470,8 +487,10 @@ async function postUserFeed(req, res, next) {
         resolvedFrom: `Fallback Provider (${provider})`,
         resolvedPath: `${hubUrl}/api/v1/user/${encodeURIComponent(targetUser)}`,
         provider,
+        failedSource: result.fallback.failedSource || undefined,
         logFile: logFile || undefined,
         details: {
+          failedSource: result.fallback.failedSource || undefined,
           triggerReason: result.fallback.triggerReason || result.fallback.reason || undefined,
         },
       });

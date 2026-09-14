@@ -33,6 +33,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const config = require('./config');
 
 const ENTRY = `${config.siteOrigin}/js/app.js`;
@@ -128,21 +130,46 @@ const describeRemote = () =>
 // ------------------------------------------------------------------ the site
 
 async function get(url) {
-  const res = await fetch(url, {
-    headers: { 'user-agent': UA, referer: `${config.siteOrigin}/` },
-  });
-  if (!res.ok) {
-    // 451 (and 403) mean the host itself is refused, not that the URL is wrong.
-    // Say so, because the remedy is completely different from a broken URL.
-    if (res.status === 451 || res.status === 403) {
-      throw new Error(
-        `anonyig.com refuses this host (HTTP ${res.status}) — run \`npm run anonyig:chunk\` ` +
-          'somewhere it is reachable to mirror the chunk to B2, which this instance can read'
-      );
-    }
-    throw new Error(`GET ${url} -> HTTP ${res.status}`);
+  const proxy = config.proxy || process.env.ANONYIG_PROXY || process.env.FASTDL_PROXY || process.env.IGRAM_PROXY || null;
+
+  try {
+    const res = await fetch(url, {
+      headers: { 'user-agent': UA, referer: `${config.siteOrigin}/` },
+    });
+    if (res.ok) return await res.text();
+  } catch (err) {
+    if (!proxy) throw err;
   }
-  return res.text();
+
+  if (proxy) {
+    try {
+      const agent = new HttpsProxyAgent(proxy);
+      const res = await axios.get(url, {
+        headers: { 'user-agent': UA, referer: `${config.siteOrigin}/` },
+        httpsAgent: agent,
+        proxy: false,
+        timeout: 20000,
+        responseType: 'text',
+      });
+      if (res.status === 200 && res.data) {
+        return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+      }
+    } catch (err) {
+      const status = err.response?.status;
+      if (status === 451 || status === 403) {
+        throw new Error(
+          `anonyig.com refuses this host (HTTP ${status}) — check proxy or run \`npm run anonyig:chunk\` ` +
+            'somewhere it is reachable to mirror the chunk to B2, which this instance can read'
+        );
+      }
+      throw new Error(`GET ${url} via proxy -> ${err.message}`);
+    }
+  }
+
+  throw new Error(
+    `anonyig.com refuses this host — configure proxy (e.g. ANONYIG_PROXY) or run \`npm run anonyig:chunk\` ` +
+      'somewhere it is reachable to mirror the chunk to B2, which this instance can read'
+  );
 }
 
 /** Pull the chunk's current `ch=` hash out of webpack's chunk map. */
@@ -228,7 +255,7 @@ async function persist(source, from) {
     }
   }
 
-  if (from === 'anonyig.com' && remoteConfigured()) {
+  if (from !== 'b2' && remoteConfigured()) {
     try {
       await remoteWrite(source);
       // eslint-disable-next-line no-console

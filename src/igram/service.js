@@ -42,10 +42,22 @@ function toHttpError(err) {
 
 const run = async (fn) => { try { return await fn(getClient()); } catch (err) { throw toHttpError(err); } };
 
+const runWithOptions = async (opts, fn) => {
+  if (!opts || opts.proxy === undefined) return run(fn);
+  const scopedClient = new IGram({ proxy: opts.proxy });
+  try {
+    return await fn(scopedClient);
+  } catch (err) {
+    throw toHttpError(err);
+  } finally {
+    scopedClient.close();
+  }
+};
+
 const getConvertedFeed = (handle, opts = {}) => {
   const pages = parseInt(opts.pages, 10) || 1;
   const limit = parseInt(opts.highlightDetailLimit, 10);
-  return run((ig) => buildConvertedFeed(ig, normalizeUsername(handle), {
+  return runWithOptions(opts, (ig) => buildConvertedFeed(ig, normalizeUsername(handle), {
     pages,
     includeStories: opts.includeStories !== false,
     includeHighlightDetails: opts.includeHighlightDetails !== false,

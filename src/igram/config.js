@@ -1,4 +1,4 @@
-'use strict';
+const path = require('path');
 
 const int = (value, fallback) => {
   const parsed = parseInt(value, 10);
@@ -11,6 +11,17 @@ module.exports = {
   workerHub: process.env.IGRAM_WORKER_HUB || 'https://api-wh.igram.world',
   siteOrigin: process.env.IGRAM_SITE_ORIGIN || 'https://igram.world',
   timeoutMs: int(process.env.IGRAM_TIMEOUT_MS, 20000),
+
+  // Chunk path locally
+  chunkPath:
+    process.env.IGRAM_CHUNK_PATH ||
+    path.join(
+      process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data'),
+      'igram',
+      'live_link_chunk.js'
+    ),
+
   proxy: process.env.IGRAM_PROXY || null,
   usePoolProxy: process.env.IGRAM_USE_POOL_PROXY === 'true',
 };
+

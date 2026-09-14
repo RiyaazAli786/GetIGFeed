@@ -34,8 +34,20 @@ class FastDLError extends Error {
   }
 }
 
-const isSignatureError = (err) =>
-  err instanceof FastDLError && typeof err.code === 'string' && err.code.startsWith('REQUEST_SIGNATURE_');
+const isSignatureError = (err) => {
+  if (!err) return false;
+  if (!(err instanceof FastDLError)) return false;
+  if (err.status === 401) return true;
+  const code = String(err.code || '').toUpperCase();
+  const msg = String(err.message || '').toUpperCase();
+  return (
+    code.startsWith('REQUEST_SIGNATURE_') ||
+    code.includes('SIGNATURE') ||
+    code.includes('EXPIRED') ||
+    msg.includes('SIGNATURE') ||
+    msg.includes('EXPIRED')
+  );
+};
 
 function decompress(buf, encoding) {
   switch (encoding) {
@@ -255,7 +267,9 @@ class FastDL {
       return await this._post(path, signedBody);
     } catch (err) {
       if (!isSignatureError(err)) throw err;
-      console.warn(`[fastdl] ${err.code} — refreshing the signing chunk and retrying`);
+      console.warn(
+        `[fastdl] ${err.code || err.message || `HTTP ${err.status}`} — signing chunk expired/rejected; fetching fresh from site and mirroring to B2`
+      );
       const signer = await getSigner({ refresh: true });
       const signedBody = await signer(body);
       return await this._post(path, signedBody);

@@ -36,6 +36,18 @@ test('orderedProviders preserves an explicitly supplied provider order', () => {
   );
 });
 
+test('orderedProviders rotates workers when rotate: true is passed on an array', () => {
+  assert.deepEqual(
+    orderedProviders(['fastdl', 'anonyig'], { rotate: true }),
+    ['anonyig', 'fastdl']
+  );
+  assert.deepEqual(
+    orderedProviders(['fastdl', 'anonyig'], { rotate: true }),
+    ['fastdl', 'anonyig']
+  );
+});
+
+
 test('shouldFallbackForPrivateResult only triggers on empty 401-like failures', () => {
   assert.equal(
     shouldFallbackForPrivateResult({
