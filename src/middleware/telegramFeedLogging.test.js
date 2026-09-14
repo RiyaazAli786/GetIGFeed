@@ -45,6 +45,21 @@ test('formatFeedResolutionText formats fallback and provider fields', () => {
   assert.ok(text.includes('reason: Private Instagram feed returned 401.'));
 });
 
+test('formatFeedResolutionText formats Instagram GraphQL resolution fields', () => {
+  const meta = {
+    resolvedFrom: 'Instagram GraphQL',
+    resolvedPath: 'https://www.instagram.com/graphql/query/?doc_id=7950326061742207',
+    authSource: 'pool',
+    proxy: 'direct / pool',
+  };
+
+  const text = formatFeedResolutionText(meta);
+  assert.ok(text.includes('Feed Resolved From: Instagram GraphQL'));
+  assert.ok(text.includes('Resolution Path: https://www.instagram.com/graphql/query/?doc_id=7950326061742207'));
+  assert.ok(text.includes('Auth Source: pool'));
+  assert.ok(text.includes('Proxy: direct / pool'));
+});
+
 test('formatTelegramMessage includes feed resolution along with existing request and response logs', () => {
   const feedResolution = {
     resolvedFrom: 'Cache (Memory)',

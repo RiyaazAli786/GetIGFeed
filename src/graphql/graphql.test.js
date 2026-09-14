@@ -22,3 +22,11 @@ test('GraphQL web headers do not include mobile Authorization', () => {
   assert.strictEqual(headers['x-csrftoken'], 'csrf-token');
   assert.strictEqual(headers['x-ig-www-claim'], 'claim-token');
 });
+
+test('resolveUserId returns numeric user IDs immediately without external requests', async () => {
+  const resolved = await service.resolveUserId('44725523631');
+  assert.strictEqual(resolved, '44725523631');
+  const resolvedWithAt = await service.resolveUserId('@44725523631');
+  assert.strictEqual(resolvedWithAt, '44725523631');
+});
+

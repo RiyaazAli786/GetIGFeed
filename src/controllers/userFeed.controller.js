@@ -1,6 +1,7 @@
 'use strict';
 
 const { getUserFeed } = require('../services/instagram.service');
+const { fetchFromGraphQL } = require('../graphql/service');
 const {
   getFallbackFeed,
   shouldFallbackForPrivateResult,
@@ -338,8 +339,36 @@ async function postUserFeed(req, res, next) {
     };
 
     let result;
+    let primaryGqlError = null;
+    let triedGraphQL = false;
+    const primarySource = (
+      process.env.USER_FEED_PRIMARY_SOURCE || 'graphql'
+    ).trim().toLowerCase();
+
+    // Step 1: If primary source is GraphQL (default), try it first!
+    if (primarySource === 'graphql' && !noAuthAvailable) {
+      triedGraphQL = true;
+      try {
+        result = await fetchFromGraphQL(userId, {
+          first: Number(src.count || src.limit || 12),
+          after: feedMaxId,
+          account,
+          useProxy: initialHadProxy,
+          includeStories: resolvedIncludeStories,
+          includeHighlightDetails,
+          highlightDetailLimit,
+        });
+      } catch (err) {
+        primaryGqlError = err;
+      }
+    }
+
+    const gqlEdges = result?.data?.user?.edge_owner_to_timeline_media?.edges || [];
+    const gqlSucceeded = gqlEdges.length > 0;
+
+    // Step 2: If GraphQL didn't succeed, try Private API
     let privateFeedError = null;
-    if (!noAuthAvailable) {
+    if (!gqlSucceeded && !noAuthAvailable) {
       try {
         // getUserFeed → resolveAccount() fills any still-missing cookies/proxy
         // from the encrypted pool.
@@ -349,10 +378,15 @@ async function postUserFeed(req, res, next) {
       }
     }
 
+    const privateEdges = result?.data?.user?.edge_owner_to_timeline_media?.edges || [];
+    const hasPostsAfterPrimary = gqlSucceeded || privateEdges.length > 0;
+
     const needsFallback =
-      noAuthAvailable ||
-      shouldFallbackForError(privateFeedError) ||
-      shouldFallbackForPrivateResult(result);
+      !gqlSucceeded &&
+      (noAuthAvailable ||
+        !hasPostsAfterPrimary ||
+        shouldFallbackForError(privateFeedError) ||
+        shouldFallbackForPrivateResult(result));
 
     if (needsFallback && !feedMaxId && !noAuthAvailable) {
       const validProxy = await nextValidPoolProxy();
@@ -378,10 +412,15 @@ async function postUserFeed(req, res, next) {
       }
     }
 
+    const currentEdges = result?.data?.user?.edge_owner_to_timeline_media?.edges || [];
+    const hasCurrentPosts = currentEdges.length > 0;
+
     const stillNeedsFallback =
-      noAuthAvailable ||
-      shouldFallbackForError(privateFeedError) ||
-      shouldFallbackForPrivateResult(result);
+      !gqlSucceeded &&
+      (noAuthAvailable ||
+        !hasCurrentPosts ||
+        shouldFallbackForError(privateFeedError) ||
+        shouldFallbackForPrivateResult(result));
 
     if (stillNeedsFallback && !feedMaxId) {
       const failedSource = bridgeResult?.used
@@ -390,17 +429,28 @@ async function postUserFeed(req, res, next) {
         ? 'Dominator Account'
         : inlineAuth || proxy
         ? 'Inline Auth Session'
+        : triedGraphQL && !privateFeedError && (!result || !currentEdges.length)
+        ? 'Instagram GraphQL & Private API'
+        : triedGraphQL
+        ? 'Instagram GraphQL'
         : noAuthAvailable
         ? 'Session Pool (Empty - No Auth Available)'
         : 'Instagram Private API (Session Pool)';
 
       const rawReason = noAuthAvailable
         ? 'No auth provided and the stored session pool is empty.'
-        : privateFeedError?.message || result?.error || 'Private Instagram feed returned 401.';
+        : primaryGqlError?.message ||
+          privateFeedError?.message ||
+          result?.error ||
+          'Upstream returned 0 posts.';
 
       const reason = rawReason.includes('401')
         ? `${rawReason} (Session cookies expired or unauthorized)`
         : rawReason;
+
+      const remainingProviders = triedGraphQL
+        ? selectedFallbackProviders.filter((p) => p !== 'graphql')
+        : selectedFallbackProviders;
 
       try {
         result = await getFallbackFeed(userId, {
@@ -410,9 +460,10 @@ async function postUserFeed(req, res, next) {
           highlightDetailLimit,
           reason,
           failedSource,
-          providers: selectedFallbackProviders,
+          providers: remainingProviders.length ? remainingProviders : selectedFallbackProviders,
         });
       } catch (fallbackErr) {
+        if (primaryGqlError && !privateFeedError) throw primaryGqlError;
         if (privateFeedError) throw privateFeedError;
         if (noAuthAvailable) {
           fallbackErr.message =
@@ -420,7 +471,9 @@ async function postUserFeed(req, res, next) {
         }
         throw fallbackErr;
       }
-    } else if (privateFeedError) {
+    } else if (primaryGqlError && !result) {
+      throw primaryGqlError;
+    } else if (privateFeedError && !result) {
       throw privateFeedError;
     } else if (noAuthAvailable) {
       setFeedResolution(res, {
@@ -494,6 +547,15 @@ async function postUserFeed(req, res, next) {
           triggerReason: result.fallback.triggerReason || result.fallback.reason || undefined,
         },
       });
+    } else if (result?.source === 'graphql') {
+      const authSource = dominatorAccount ? 'dominatorAccount' : (inlineAuth || proxy ? 'inline' : 'pool');
+      setFeedResolution(res, {
+        resolvedFrom: 'Instagram GraphQL',
+        resolvedPath: 'https://www.instagram.com/graphql/query/?doc_id=7950326061742207',
+        authSource,
+        proxy: initialHadProxy ? 'provided' : 'direct / pool',
+        logFile: logFile || undefined,
+      });
     } else if (result?.private_retry?.used) {
       setFeedResolution(res, {
         resolvedFrom: 'Instagram Private API (Proxy Retry)',
@@ -505,11 +567,14 @@ async function postUserFeed(req, res, next) {
     } else {
       const authSource = dominatorAccount ? 'dominatorAccount' : (inlineAuth || proxy ? 'inline' : 'pool');
       setFeedResolution(res, {
-        resolvedFrom: 'Instagram Private API',
+        resolvedFrom: triedGraphQL ? 'Instagram Private API (Fallback)' : 'Instagram Private API',
         resolvedPath: feedPath,
         authSource,
         proxy: initialHadProxy ? 'provided' : 'direct / pool',
         logFile: logFile || undefined,
+        ...(triedGraphQL ? {
+          failedSource: 'Instagram GraphQL',
+        } : {}),
       });
     }
 

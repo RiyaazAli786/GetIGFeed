@@ -35,6 +35,7 @@ function cookiesFromSession(session) {
 }
 
 function graphQLAccount(opts = {}) {
+  if (opts.account) return opts.account;
   if (opts.useProxy === false) {
     const session = poolStore.nextSession();
     const cookies = cookiesFromSession(session);
@@ -82,9 +83,12 @@ function graphQLWebHeaders(param = {}, csrfToken = '') {
  *      public paths fail.
  */
 async function resolveUserId(username) {
+  const clean = String(username || '').trim().replace(/^@/, '');
+  if (clean && /^\d+$/.test(clean)) return clean;
+
   // ── Strategy 1: public web_profile_info via native https ─────────────────
   try {
-    const user = await fetchWebProfileInfoUser(username);
+    const user = await fetchWebProfileInfoUser(clean);
     const id = user?.id ?? user?.pk_id;
     if (id && String(id).match(/^\d+$/)) return String(id);
   } catch (_) {}
@@ -156,20 +160,25 @@ function fetchWebProfileInfoUser(username) {
 
 /** Fetch a profile header for the converted GraphQL response when available. */
 async function fetchProfileForConvertedResponse(handle, fallbackId, param, headers) {
+  const clean = String(handle || '').trim().replace(/^@/, '');
+  if (!clean || /^\d+$/.test(clean)) {
+    return { id: fallbackId || clean, username: null };
+  }
+
   try {
-    const user = await fetchWebProfileInfoUser(handle);
+    const user = await fetchWebProfileInfoUser(clean);
     if (user) return user;
   } catch (_) {}
 
   try {
     const url =
       'https://www.instagram.com/api/v1/users/web_profile_info/?' +
-      `username=${encodeURIComponent(handle)}`;
+      `username=${encodeURIComponent(clean)}`;
     const r = await param.client.get(url, { headers });
     return r.data?.data?.user || null;
   } catch (_) {}
 
-  return { id: fallbackId, username: handle };
+  return { id: fallbackId, username: clean };
 }
 
 function convertedUserProfile(user, fallbackId, fallbackUsername) {
@@ -206,8 +215,8 @@ async function fetchFromGraphQL(username, opts = {}) {
   const handle = String(username || '').trim().replace(/^@/, '');
   if (!handle) throw badRequest('username is required.');
 
-  const first = Math.min(parseInt(opts.first, 10) || 12, 50);
-  const after = opts.after || opts.endCursor || null;
+  const first = Math.min(parseInt(opts.first || opts.count || opts.limit, 10) || 12, 50);
+  const after = opts.after || opts.endCursor || opts.maxId || null;
 
   // Draw auth from the pool. /api/user-feed fallback disables proxy here so
   // only the AnonyIG and FastDL worker fallbacks consume proxy pool entries.
