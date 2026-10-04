@@ -1,6 +1,6 @@
 # GetIGFeed Project Context
 
-Last built: 2026-09-10
+Last built: 2026-10-04
 
 ## What This Repo Is
 
@@ -18,13 +18,15 @@ Last built: 2026-09-10
 
 3. **Multi-Tier Public Fallback Engine (`src/services/feedFallback.service.js`)**:
    - Automated zero-credential failover when private sessions are unavailable, empty, or hit Instagram anti-bot challenges.
-   - Sequentially queries fallback providers (`FEED_FALLBACK_PROVIDERS`: `graphql`, then rotating `anonyig`/`fastdl`) and transforms responses into standard `web_profile_info` envelopes.
+   - Sequentially queries fallback providers (`FEED_FALLBACK_PROVIDERS`: `graphql`, `igram`, then rotating `anonyig`/`fastdl`) and transforms responses into standard `web_profile_info` envelopes.
+   - Respects per-request/environment switches for IGram (`USER_FEED_IGRAM_FALLBACK`) and worker hubs (`USER_FEED_HUB_FALLBACK`).
 
 4. **Third-Party Story & Highlight Scrapers (`src/services/storyFetcher.js`)**:
    - Public sessionless story/highlight extraction (storynavigation.com, anonstories.com, i.theasmn.com).
    - Enriches feed results with top-level `stories`, `highlights`, and detailed `highlight_details` bubbles.
 
 5. **Direct Signed Worker Hubs & GraphQL Modules**:
+   - **IGram (`src/igram/`)**: Profile and highlight story viewer integration (`api-wh.igram.world`).
    - **AnonyIG (`src/anonyig/`)**: Signed HTTP/2 worker hub (`api-wh.anonyig.com`).
    - **FastDL (`src/fastdl/`)**: Signed HTTP/2 worker hub (`api-wh.fastdl.app`).
    - **GraphQL (`src/graphql/`)**: Direct timeline media queries using doc_ids and pool sessions.
@@ -34,7 +36,7 @@ Last built: 2026-09-10
    - Live proxy latency testing, feed preview, story preview, and session import (supporting raw sessionid, cookie strings, or Chrome cookie export JSON arrays).
 
 7. **Audit & Telemetry**:
-   - Real-time Telegram API request/response logging middleware (`src/middleware/telegramRequestLogger.js`) with automatic secret redaction.
+   - Real-time Telegram API request/response and feed resolution logging middleware (`src/middleware/telegramRequestLogger.js`, `src/utils/feedResolution.js`) with automatic secret redaction.
    - Disk/B2 feed logging (`src/store/feedLog.js`).
 
 ---
@@ -50,6 +52,7 @@ Last built: 2026-09-10
   - `npm run dev` -> `nodemon src/index.js`
   - `npm.cmd test` -> `node --test` (Runs built-in Node test suite)
   - `npm.cmd run test:hover-card -- <handle>` -> Diagnostics CLI for Polaris hover card GraphQL profile resolution.
+  - `npm run igram:chunk` -> Fetches and mirrors IGram signing chunk.
   - `npm run anonyig:chunk` -> Fetches and mirrors AnonyIG signing chunk to disk / B2.
   - `npm run fastdl:chunk` -> Fetches and mirrors FastDL signing chunk to disk / B2.
 
@@ -61,12 +64,16 @@ Last built: 2026-09-10
 ## Current Health & Validation
 
 - **Test Suite**: Fully operational via `npm.cmd test`.
-- **Test Results** (18/18 passing):
-  - FastDL Config, Chunk Sources, VM Sandbox signer, Client methods, and Input normalizers.
-  - GraphQL Service exports.
-  - Fallback engine username normalizer and trigger conditions (`shouldFallbackForPrivateResult`, `shouldFallbackForError`).
+- **Test Results** (40/40 passing):
+  - FastDL Config, Chunk Sources, VM Sandbox signer, Client methods, converted feed, and Input normalizers.
+  - GraphQL Service exports and clean web headers (no mobile Authorization leak).
+  - Numeric user ID resolution (`resolveUserId`) fast-path.
+  - IGram configuration, client methods, URL/handle/highlight parsers, and feed conversion.
+  - Feed resolution formatting (`formatFeedResolutionText`, res.locals tracking, and Telegram message integration).
+  - Fallback engine username normalizer, ordered providers (preserving order and rotating workers), and trigger conditions (`shouldFallbackForPrivateResult`, `shouldFallbackForError`).
+  - FeedPilot Bridge configuration, strict boolean options, and retryable empty/502 handling.
   - Profile resolution count checks (`hasProfileCounts`) and handle match prioritization (`profileFromFeed`).
-  - Pool store session parsers (including Chrome cookie export JSON array and cookie strings).
+  - Pool store session parsers (Chrome cookie export JSON array, object.cookies, JSON strings).
 - **Dependencies**: All production dependencies (`axios`, `@aws-sdk/client-s3`, `tough-cookie`, `http-cookie-agent`, `https-proxy-agent`, `archiver`, etc.) are installed and validated.
 
 ---
@@ -95,11 +102,7 @@ Client Request
       └─ Priority 3: Encrypted Session & Proxy Pool (Round-Robin)
       │
       ▼
-[4. In-Memory Cache Check] (feedCache)
-      └─ (if first-page request AND cache enabled AND NOT fresh/bypassCache) ──► Cache HIT
-      │
-      ▼
-[5. Instagram Private Mobile API] (getUserFeed)
+[4. Instagram Private Mobile API / Direct Pipeline] (getUserFeed)
       ├─ Builds IGT:2 Bearer Auth + CSRF + CookieJar + Proxy Agent
       ├─ Calls /api/v1/feed/user/<target>/?count=PAGE_COUNT
       ├─ Profile Detail Enrichment:
@@ -115,21 +118,21 @@ Client Request
       └─► FAIL (401 / Unauthorized / Spam Block / Empty Feed):
             │
             ▼
-      [6. Proxy Retry with Verified Pool Proxy] (nextValidPoolProxy)
+      [5. Proxy Retry with Verified Pool Proxy] (nextValidPoolProxy)
             ├─ Checks next pool proxy with live IP-echo & Instagram reachability probe
             ├─ If reachable: Retries getUserFeed with new proxy (annotates private_retry)
             │
             └─► If still failing (or no auth in pool) AND no maxId:
                   │
                   ▼
-            [7. Public Fallback Engine] (getFallbackFeed)
+            [6. Public Fallback Engine] (getFallbackFeed)
                   ├─ Normalizes handle from input (rejects bare numeric IDs)
                   ├─ Provider 1: GraphQL (no fallback proxy)
                   ├─ Provider 2/3: AnonyIG and FastDL rotate first attempt (pool/provided proxy)
                   └─ Annotates payload with fallback metadata (used, provider, failures)
       │
       ▼
-[8. Post-Response Tasks]
+[7. Post-Response Tasks]
       ├─ Asynchronous Feed Logging (src/store/feedLog.js to local disk or B2)
       └─ Telegram Logger dispatches complete response overview
 ```
@@ -240,6 +243,9 @@ To eliminate the common issue of empty/zero follower counts or collaborator post
 - `GET /api/instagram/download/zip/:jobId/file` — Downloads generated zip archive.
 
 ### Third-Party Worker Hubs & Direct GraphQL
+- `GET|POST /api/igram[/:username]` — IGram single media or profile feed resolution.
+- `GET /api/igram/highlights/:highlightId` — IGram highlight story detail.
+- `GET /api/igram/status` — IGram worker hub health.
 - `GET|POST /api/anonyig/user[/:username]` — AnonyIG user profile.
 - `GET|POST /api/anonyig/feed[/:username]` — AnonyIG consolidated feed.
 - `GET /api/anonyig/posts[/:username]` — AnonyIG timeline posts.
@@ -265,24 +271,28 @@ To eliminate the common issue of empty/zero follower counts or collaborator post
 | `ADMIN_PASSCODE` | String | *Required* | Passcode to access `/admin` dashboard |
 | `ADMIN_IDLE_MS` | Number | `30000` | Dashboard session inactivity timeout |
 | `FEED_SOURCE_MODE` | String | `bridge_then_pool`| `bridge_then_pool`, `android_bridge`, or `pool` |
-| `FEEDPILOT_BRIDGE_URL` | String | Empty | FeedPilot Android bridge base URL |
+| `FEEDPILOT_BRIDGE_URL` | String | Empty | FeedPilot Android bridge base URL (`/api/bridge/feed`) |
 | `FEEDPILOT_BRIDGE_KEY` | String | Empty | Bridge authentication key (`X-Bridge-Key`) |
 | `FEEDPILOT_BRIDGE_TIMEOUT_MS` | Number | `35000` | Timeout for Android device response |
 | `FEEDPILOT_BRIDGE_FALLBACK` | Boolean| `true` | Fallback to pool if Android bridge fails |
-| `FEED_FALLBACK_PROVIDERS` | String | `graphql,anonyig,fastdl` | Comma-separated fallback order; AnonyIG/FastDL rotate first attempt when both are enabled |
-| `FEED_CACHE_DEFAULT` | Boolean| `false` | Enable in-memory TTL caching for 1st-page feeds |
-| `CACHE_TTL_MS` | Number | `30000` | Feed memory cache TTL |
+| `FEED_FALLBACK_PROVIDERS` | String | `graphql,igram,anonyig,fastdl` | Comma-separated fallback order; AnonyIG/FastDL rotate first attempt when both are enabled |
+| `USER_FEED_IGRAM_FALLBACK` | Boolean| `true` | Enable/disable IGram in user feed fallback pipeline |
+| `USER_FEED_HUB_FALLBACK` | Boolean| `true` | Enable/disable AnonyIG/FastDL worker hubs in fallback |
 | `FEED_INCLUDE_STORIES` | Boolean| `true` | Auto-merge stories/highlights in feed responses |
 | `FEED_INCLUDE_HIGHLIGHT_DETAILS`| Boolean | `true` | Auto-expand highlight media bubbles |
 | `FEED_HIGHLIGHT_DETAIL_LIMIT` | Number | `0` | Max highlights to expand (0 = all) |
 | `TELEGRAM_LOG_ENABLED` | Boolean| `false` | Enable Telegram audit logging |
+| `TELEGRAM_FEED_LOG_ENABLED` | Boolean| `false` | Enable Telegram audit logging specifically for feed routes |
 | `TELEGRAM_BOT_TOKEN` | String | Empty | Telegram Bot API token |
 | `TELEGRAM_CHAT_ID` | String | Empty | Destination chat/channel ID |
 | `TELEGRAM_LOG_SCOPE` | String | `api` | `api` (/api/* only) or `all` |
 | `TELEGRAM_LOG_MAX_BODY` | Number | `1800` | Max characters per request/response body |
+| `IGRAM_WORKER_HUB` | String | `https://api-wh.igram.world` | IGram worker hub API endpoint |
+| `IGRAM_SITE_ORIGIN` | String | `https://igram.world` | IGram site origin header |
+| `IGRAM_TIMEOUT_MS` | Number | `20000` | IGram request timeout in ms |
 | `STORAGE_BACKEND` | String | `file` | `file` or `b2` |
 | `B2_BUCKET` / `B2_KEY_ID` / `B2_APPLICATION_KEY` / `B2_ENDPOINT` | String | Empty | Backblaze B2 credentials for cloud persistence |
-| `ANONYIG_USE_POOL_PROXY` / `FASTDL_USE_POOL_PROXY` | Boolean| `false` | Tunnel worker hub requests via pool proxies |
+| `ANONYIG_USE_POOL_PROXY` / `FASTDL_USE_POOL_PROXY` / `IGRAM_USE_POOL_PROXY` | Boolean| `false` | Tunnel worker hub requests via pool proxies |
 
 ---
 

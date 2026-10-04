@@ -1,6 +1,6 @@
 # GetIGFeed — Complete Workspace & Architecture Context
 
-> Living reference for the entire GetIGFeed repository. Last updated on 2026-09-10.
+> Living reference for the entire GetIGFeed repository. Last updated on 2026-10-04.
 > Companion docs: [Master.md](file:///c:/CoreProjects/GetIGFeed/Master.md) (API Reference), [API.md](file:///c:/CoreProjects/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///c:/CoreProjects/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment), [PROJECT_CONTEXT.md](file:///c:/CoreProjects/GetIGFeed/PROJECT_CONTEXT.md) (Project Context).
 
 ---
@@ -13,9 +13,9 @@
 2. **Instagram Private Mobile API**: Direct `/api/v1/` mobile endpoint fetching with session cookie jars and rotating proxies.
 3. **Polaris GraphQL Hover Card Enrichment**: Resolves complete profile counts (followers/following) while preserving the requested user handle against collaborator post overrides.
 4. **Automated Session & Proxy Pool**: Round-robin rotation, proxy validation, automated failover, and dual persistence backends (local filesystem or Backblaze B2). Supports Chrome cookie export JSON arrays.
-5. **Sessionless Fallback Engine**: Automatic failover to public providers (AnonyIG, FastDL) on 401, challenge, or empty session pool.
-6. **Third-Party Story Platforms & Signed HTTP/2 Worker Hubs**: Anonyig and FastDL signed worker hub clients.
-7. **Telegram Telemetry & Audit**: Real-time request and response logging to Telegram with sensitive credential masking.
+5. **Sessionless Fallback Engine**: Automatic failover to public providers (IGram, AnonyIG, FastDL) on 401, challenge, or empty session pool.
+6. **Third-Party Story Platforms & Signed HTTP/2 Worker Hubs**: IGram, AnonyIG, and FastDL signed worker hub clients.
+7. **Telegram Telemetry & Audit**: Real-time request, response, and feed resolution logging to Telegram with sensitive credential masking.
 
 ---
 
@@ -45,15 +45,15 @@
  ▼                               ▼                               ▼                                        ▼
 ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────────────────┐
 │ FeedPilot Bridge     │ │ Private Mobile API   │ │ Sessionless Fallback │ │ Session & Proxy Pool Store   │
-│ (src/services/       │ │ (src/services/       │ │ Engine (AnonyIG &    │ │ (src/store/poolStore.js)     │
-│  feedPilotBridge)    │ │  instagram.service)  │ │  FastDL Providers)   │ │ Encrypted AES-256-GCM        │
+│ (src/services/       │ │ (src/services/       │ │ Engine (IGram,       │ │ (src/store/poolStore.js)     │
+│  feedPilotBridge)    │ │  instagram.service)  │ │  AnonyIG & FastDL)   │ │ Encrypted AES-256-GCM        │
 └──────────┬───────────┘ └──────────┬───────────┘ └──────────┬───────────┘ └──────────────┬───────────────┘
            │                        │                        │                            │
            │ X-Bridge-Key Auth      │ Proxy & Cookie Agent   │ HTTP/2 Signed Headers      │ Persistence Layer
            ▼                        ▼                        ▼                            ▼
 ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────────────────┐
-│ FeedPilot Android    │ │ Instagram Mobile &   │ │ anonyig.com &        │ │ Local JSON (data/pool.json)  │
-│ Device Hub Servers   │ │ Polaris Hover Card   │ │ fastdl.app Hubs      │ │ or Backblaze B2 Object Bucket│
+│ FeedPilot Android    │ │ Instagram Mobile &   │ │ igram.world,         │ │ Local JSON (data/pool.json)  │
+│ Device Hub Servers   │ │ Polaris Hover Card   │ │ anonyig & fastdl     │ │ or Backblaze B2 Object Bucket│
 └──────────────────────┘ └──────────────────────┘ └──────────────────────┘ └──────────────────────────────┘
 ```
 
@@ -95,6 +95,7 @@ GetIGFeed/
 │   │   ├── browserFallback.js         # Headless browser fallback client
 │   │   ├── feedStoryMerge.js          # Merges feed timeline with stories & highlights
 │   │   └── webParameter.js            # Query signature generator for web API calls
+│   ├── igram/                # IGram worker hub subsystem & feed conversion
 │   ├── anonyig/              # Anonyig worker hub subsystem (HTTP/2 transport)
 │   ├── fastdl/               # FastDL.app worker hub subsystem
 │   ├── graphql/              # Direct Instagram GraphQL timeline module
@@ -110,7 +111,8 @@ GetIGFeed/
 │   ├── utils/                # Utilities
 │   │   ├── mapFeedPilotBridgeResponse.js # Mappers for FeedPilot Android bridge payloads
 │   │   ├── mapFeedToWebProfile.js        # Mappers for Instagram mobile API payloads
-│   │   ├── cache.js                   # In-memory TTL cache
+│   │   ├── feedResolution.js          # Resolution metadata tracker & formatter
+│   │   ├── cache.js                   # In-memory TTL cache (deprecated; direct fetch used)
 │   │   ├── crypto.js                  # AES-256-GCM encryption & decryption
 │   │   └── httpFetch.js               # Low-level fetch wrapper
 │   └── public/               # Admin web dashboard HTML & assets
@@ -152,15 +154,16 @@ GetIGFeed/
 
 ### 3.4 Multi-Tier Fallback Engine (`src/services/feedFallback.service.js`)
 * Automatically activates when private sessions return 401, challenges, spam blocks, or when pool sessions are empty.
-* Fallback sequence: `FEED_FALLBACK_PROVIDERS` (default: `graphql`, then rotating `anonyig`/`fastdl`).
+* Fallback sequence: `FEED_FALLBACK_PROVIDERS` (default: `graphql`, `igram`, then rotating `anonyig`/`fastdl`).
+* Respects per-request/environment switches for IGram (`USER_FEED_IGRAM_FALLBACK`) and worker hubs (`USER_FEED_HUB_FALLBACK`).
 * Re-formats external provider data into standard `web_profile_info`.
 
-### 3.5 Worker Hubs (AnonyIG & FastDL)
-* Sessionless Instagram data access over signed HTTP/2 transport layers.
-* Self-healing chunk mirror scripts (`npm run anonyig:chunk`, `npm run fastdl:chunk`) supporting B2 mirror sync.
+### 3.5 Worker Hubs (IGram, AnonyIG & FastDL)
+* Sessionless Instagram data access over signed HTTP/2 transport layers and worker endpoints.
+* Self-healing chunk mirror scripts (`npm run igram:chunk`, `npm run anonyig:chunk`, `npm run fastdl:chunk`) supporting local/B2 mirror sync.
 
-### 3.6 Telegram Telemetry (`src/middleware/telegramRequestLogger.js`)
-* Dispatches audit logs of API requests, responses, status codes, and execution latencies directly to Telegram.
+### 3.6 Telegram Telemetry & Feed Resolution (`src/middleware/telegramRequestLogger.js`, `src/utils/feedResolution.js`)
+* Dispatches audit logs of API requests, responses, status codes, execution latencies, and detailed feed resolution metadata (source, path, auth, proxy, fallback provider) directly to Telegram.
 * Automatic redacting of all authentication tokens, session cookies, passwords, and private headers.
 
 ---
@@ -181,6 +184,8 @@ GetIGFeed/
 | `/api/instagram/download/zip` | POST | Public | Direct zip stream of stories/highlights |
 | `/api/instagram/download/zip/start` | POST | Public | Starts async zip job for SSE streaming |
 | `/api/instagram/download/zip/:jobId/events` | GET | Public | Real-time SSE progress stream for zip packaging |
+| `/api/igram[/:username]` | GET / POST | Public | Resolves single media, profile feed, or stories via IGram |
+| `/api/igram/highlights/:highlightId` | GET | Public | Resolves highlight stories via IGram |
 | `/api/anonyig/user[/:username]` | GET / POST | Public | Profile via AnonyIG worker hub |
 | `/api/anonyig/feed[/:username]` | GET / POST | Public | Feed via AnonyIG worker hub |
 | `/api/fastdl[/:username]` | GET / POST | Public | Resolves single media links or feed via FastDL |
@@ -190,9 +195,10 @@ GetIGFeed/
 
 ## 5. Execution & Testing
 
-- `npm.cmd test`: Runs built-in test suite (18/18 tests passing).
+- `npm.cmd test`: Runs built-in test suite (40/40 tests passing).
 - `npm.cmd run test:hover-card -- <handle>`: Runs Polaris hover card profile resolution CLI test.
 - `npm.cmd run dev`: Development server with nodemon reload.
 - `npm start`: Production server bootstrap.
+- `npm run igram:chunk`: Refreshes IGram signing chunk.
 - `npm run anonyig:chunk`: Refreshes AnonyIG signing chunk and mirrors to B2.
 - `npm run fastdl:chunk`: Refreshes FastDL signing chunk and mirrors to B2.

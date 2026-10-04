@@ -19,8 +19,6 @@ const {
 } = require('../services/feedPilotBridge.service');
 const { mapFeedPilotBridgeResponse } = require('../utils/mapFeedPilotBridgeResponse');
 
-const FEED_CACHE_DEFAULT =
-  String(process.env.FEED_CACHE_DEFAULT || 'false').toLowerCase() === 'true';
 
 const flag = (value, fallback = true) => {
   if (value === undefined || value === null || value === '') return fallback;
@@ -146,10 +144,6 @@ async function postUserFeed(req, res, next) {
       story,
       includeHighlightDetails,
       highlightDetailLimit,
-      fresh,
-      bypassCache,
-      useCache,
-      cache,
       igramFallback,
       useIgramFallback,
       hubFallback,
@@ -289,43 +283,6 @@ async function postUserFeed(req, res, next) {
       hubFallback: requestedHubFallback,
     });
 
-    const { feedCache, MemoryCache } = require('../utils/cache');
-    const isBypass = String(fresh || bypassCache).toLowerCase() === 'true' || fresh === true || bypassCache === true;
-    const isCacheDisabled =
-      String(useCache).toLowerCase() === 'false' ||
-      String(cache).toLowerCase() === 'false' ||
-      useCache === false ||
-      cache === false;
-    const isCacheRequested =
-      FEED_CACHE_DEFAULT ||
-      String(useCache || cache).toLowerCase() === 'true' ||
-      useCache === true ||
-      cache === true;
-    const allowCache = isCacheRequested && !isCacheDisabled && !isBypass && !feedMaxId;
-
-    const cacheKey = MemoryCache.makeKey('userFeed', {
-      userId,
-      maxId: feedMaxId,
-      includeStories: resolvedIncludeStories,
-      includeHighlightDetails,
-      highlightDetailLimit,
-      igramFallback: requestedIgramFallback,
-      hubFallback: requestedHubFallback,
-    });
-
-    if (allowCache) {
-      const cached = feedCache.get(cacheKey);
-      if (cached) {
-        res.setHeader('X-Cache', 'HIT');
-        setFeedResolution(res, {
-          resolvedFrom: 'Cache (Memory)',
-          resolvedPath: `memory-cache://${cacheKey}`,
-          source: 'cache',
-          proxy: 'none (in-memory cache)',
-        });
-        return res.status(200).json(cached);
-      }
-    }
 
     const feedOptions = {
       maxId: feedMaxId,
@@ -492,10 +449,6 @@ async function postUserFeed(req, res, next) {
     const edges = result?.data?.user?.edge_owner_to_timeline_media?.edges || [];
     const ok = edges.length > 0;
 
-    if (ok && !feedMaxId) {
-      feedCache.set(cacheKey, result);
-      res.setHeader('X-Cache', 'MISS');
-    }
 
     // Log every call to its own JSON file (no secrets — only whether they
     // were supplied and where auth was sourced from).
