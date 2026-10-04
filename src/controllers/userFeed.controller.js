@@ -482,23 +482,25 @@ async function postUserFeed(req, res, next) {
       const provider = result.fallback.provider || 'fallback';
       const hubUrl =
         provider === 'igram'
-          ? (process.env.IGRAM_WORKER_HUB || 'https://api-wn.igram.world')
+          ? (process.env.IGRAM_WORKER_HUB || 'https://api-wh.igram.world')
           : provider === 'fastdl'
           ? (process.env.FASTDL_WORKER_HUB || 'https://api-wh.fastdl.app')
           : provider === 'anonyig'
             ? (process.env.ANONYIG_WORKER_HUB || 'https://api-wh.anonyig.com')
             : 'https://www.instagram.com/graphql/query';
       const targetUser = !isNumericId ? String(userId).replace(/^@/, '') : userId;
+      const rawReason = result.fallback.triggerReason || result.fallback.reason || '';
+      const cleanReason = rawReason.includes('401')
+        ? 'Session unauthorized or expired (401)'
+        : rawReason.replace(/^Instagram GraphQL upstream failure:\s*/i, '');
+
       setFeedResolution(res, {
         resolvedFrom: `Fallback Provider (${provider})`,
         resolvedPath: `${hubUrl}/api/v1/user/${encodeURIComponent(targetUser)}`,
         provider,
         failedSource: result.fallback.failedSource || undefined,
         logFile: logFile || undefined,
-        details: {
-          failedSource: result.fallback.failedSource || undefined,
-          triggerReason: result.fallback.triggerReason || result.fallback.reason || undefined,
-        },
+        details: cleanReason ? { reason: cleanReason } : undefined,
       });
     } else if (result?.source === 'graphql') {
       const authSource = dominatorAccount ? 'dominatorAccount' : (inlineAuth || proxy ? 'inline' : 'pool');

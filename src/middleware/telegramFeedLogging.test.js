@@ -177,3 +177,62 @@ test('summarizeFeedResponse preserves follower, following, and media counts in d
   assert.equal(summary.fallback.failedSource, 'Instagram Private API (Session Pool)');
   assert.equal(summary.fallback.triggerReason, 'Request failed with status 401');
 });
+
+test('formatTelegramMessage formats clean human-readable feed request and response summaries', () => {
+  const message = formatTelegramMessage({
+    statusCode: 200,
+    method: 'GET',
+    url: '/api/user-feed?userId=healthyish_inahurry',
+    durationMs: 10913,
+    feedResolution: {
+      resolvedFrom: 'Fallback Provider (igram)',
+      resolvedPath: 'https://api-wh.igram.world/api/v1/user/healthyish_inahurry',
+      provider: 'igram',
+      failedSource: 'Instagram GraphQL & Private API',
+      details: {
+        reason: 'Session unauthorized or expired (401)',
+      },
+    },
+    requestInfo: {
+      method: 'GET',
+      path: '/api/user-feed?userId=healthyish_inahurry',
+      ip: '172.16.2.1',
+      query: { userId: 'healthyish_inahurry' },
+    },
+    responseBody: {
+      data: {
+        user: {
+          id: '4517430678',
+          username: 'healthyish_inahurry',
+          full_name: 'Chelsea Streifeneder',
+          is_verified: true,
+          is_private: false,
+          follower_count: 23268,
+          following_count: 8012,
+          media_count: 2623,
+          edge_owner_to_timeline_media: {
+            count: 2623,
+            returned: 12,
+            edges: new Array(12).fill({ node: {} }),
+          },
+        },
+      },
+      status: 'ok',
+      source: 'igram',
+      stories: 0,
+      highlights: 0,
+    },
+  });
+
+  // Verify simplified request format
+  assert.ok(message.includes('📥 Request:'));
+  assert.ok(message.includes('• Target: healthyish_inahurry (IP: 172.16.2.1)'));
+  assert.ok(!message.includes('{"method":"GET"'));
+
+  // Verify simplified response format (no raw JSON blob)
+  assert.ok(message.includes('📤 Response:'));
+  assert.ok(message.includes('• Profile: @healthyish_inahurry (Chelsea Streifeneder) [Verified] [Public]'));
+  assert.ok(message.includes('• Stats: 23,268 followers • 8,012 following • 2,623 total posts (12 returned)'));
+  assert.ok(!message.includes('"data":{"user"'));
+});
+

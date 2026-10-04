@@ -180,6 +180,74 @@ function simplifyRequestInfo(info) {
   return out;
 }
 
+function formatRequestSummary(info) {
+  if (!info || typeof info !== 'object') return null;
+  const target =
+    info.query?.userId ||
+    info.body?.userId ||
+    info.query?.username ||
+    info.body?.username;
+
+  if (!target) return null;
+
+  const ip = info.ip ? ` (IP: ${info.ip})` : '';
+  return `• Target: ${target}${ip}`;
+}
+
+function formatFeedResponseSummary(body) {
+  if (!body || typeof body !== 'object') return null;
+
+  if (body.error || (body.message && body.success === false)) {
+    const code = body.code ? ` (${body.code})` : '';
+    return `• Error: ${body.error || body.message}${code}`;
+  }
+
+  const user = body.data?.user || body.user;
+  if (!user || typeof user !== 'object' || !user.username) return null;
+
+  const username = user.username;
+  const fullName = user.full_name ? ` (${user.full_name})` : '';
+  const badges = [
+    user.is_verified ? '[Verified]' : null,
+    user.is_private ? '[Private]' : '[Public]',
+  ].filter(Boolean).join(' ');
+
+  const postEdges = user.edge_owner_to_timeline_media?.edges || [];
+  const returnedCount = user.edge_owner_to_timeline_media?.returned ?? postEdges.length;
+  const totalPosts =
+    user.edge_owner_to_timeline_media?.count ??
+    user.media_count ??
+    user.posts_count ??
+    returnedCount;
+
+  const followers =
+    user.edge_followed_by?.count ??
+    user.follower_count ??
+    user.followers ??
+    0;
+
+  const following =
+    user.edge_follow?.count ??
+    user.following_count ??
+    user.following ??
+    0;
+
+  const fmt = (n) => (typeof n === 'number' ? n.toLocaleString() : n);
+
+  const lines = [
+    `• Profile: @${username}${fullName} ${badges}`.trim(),
+    `• Stats: ${fmt(followers)} followers • ${fmt(following)} following • ${fmt(totalPosts)} total posts (${returnedCount} returned)`,
+  ];
+
+  const storiesCount = body.stories?.count ?? (body.stories?.available ? 'available' : body.stories ?? 0);
+  const highlightsCount = body.highlights?.count ?? (body.highlights?.available ? 'available' : body.highlights ?? 0);
+  if (storiesCount || highlightsCount) {
+    lines.push(`• Stories: ${storiesCount || 0} | Highlights: ${highlightsCount || 0}`);
+  }
+
+  return lines.join('\n');
+}
+
 function compactJson(value, limit = maxBody()) {
   if (limit === 0) return '[disabled]';
   let text;
@@ -195,8 +263,20 @@ function compactJson(value, limit = maxBody()) {
 
 function textBlock(label, value) {
   if (label.includes('Request') && typeof value === 'object') {
+    const summary = formatRequestSummary(value);
+    if (summary) {
+      return `${label}:\n${summary}`;
+    }
     value = simplifyRequestInfo(value);
   }
+
+  if (label.includes('Response') && typeof value === 'object') {
+    const summary = formatFeedResponseSummary(value);
+    if (summary) {
+      return `${label}:\n${summary}`;
+    }
+  }
+
   const text = compactJson(value);
   return `${label}: ${text || '(empty)'}`;
 }
