@@ -22,7 +22,26 @@ async function addExceptionUser(req, res, next) {
   }
 }
 
-router.get('/exception-users', addExceptionUser);
+// Preserve legacy GET registration when username is supplied.
+router.get('/exception-users', async (req, res, next) => {
+  if (req.query.username !== undefined) return addExceptionUser(req, res, next);
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, ...await exceptionUsers.list(req.query) });
+  } catch (err) { next(err); }
+});
+router.put('/exception-users/:username', async (req, res, next) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, ...await exceptionUsers.update(req.params.username, req.body?.username) });
+  } catch (err) { next(err); }
+});
+router.delete('/exception-users/:username', async (req, res, next) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, ...await exceptionUsers.remove(req.params.username) });
+  } catch (err) { next(err); }
+});
 router.post('/exception-users', addExceptionUser);
 
 // Fetch a user feed. Same handler for POST (JSON body) and GET (query string /
