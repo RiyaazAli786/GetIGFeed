@@ -69,7 +69,7 @@ function isRetryableBridgeError(code, status) {
 }
 
 async function fetchViaFeedPilotBridge(input) {
-  if (!bridgeEnabled()) return { used: false };
+  if (input.mode ? input.mode === 'pool' : !bridgeEnabled()) return { used: false };
 
   const { baseUrl, key } = getBridgeConfig();
   if (!baseUrl || !key) {

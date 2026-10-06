@@ -21,12 +21,13 @@ const path = require('path');
  *   describe() -> string         (for startup logging)
  */
 
-const EMPTY = () => ({ sessions: [], proxies: [] });
+const EMPTY = () => ({ sessions: [], proxies: [], exceptionUsers: [] });
 
 function normalize(data) {
   return {
     sessions: Array.isArray(data && data.sessions) ? data.sessions : [],
     proxies: Array.isArray(data && data.proxies) ? data.proxies : [],
+    exceptionUsers: Array.isArray(data && data.exceptionUsers) ? data.exceptionUsers : [],
   };
 }
 

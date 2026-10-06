@@ -10,6 +10,33 @@ const {
   fetchViaFeedPilotBridge,
 } = require('./feedPilotBridge.service');
 
+test('per-request bridge_then_pool override bypasses pool environment without changing it', async () => {
+  const previous = { mode: process.env.FEED_SOURCE_MODE, url: process.env.FEEDPILOT_BRIDGE_URL, key: process.env.FEEDPILOT_BRIDGE_KEY };
+  const originalFetch = global.fetch;
+  try {
+    process.env.FEED_SOURCE_MODE = 'pool';
+    process.env.FEEDPILOT_BRIDGE_URL = 'http://localhost:5000';
+    process.env.FEEDPILOT_BRIDGE_KEY = 'test-key';
+    let calls = 0;
+    global.fetch = async () => {
+      calls += 1;
+      return { ok: false, status: 503, json: async () => ({ code: 'NO_ACTIVE_DEVICE' }) };
+    };
+    assert.deepEqual(await fetchViaFeedPilotBridge({ username: 'ordinary' }), { used: false });
+    const result = await fetchViaFeedPilotBridge({ username: 'exception', mode: 'bridge_then_pool' });
+    assert.equal(result.used, true);
+    assert.equal(result.retryable, true);
+    assert.equal(calls, 1);
+    assert.equal(process.env.FEED_SOURCE_MODE, 'pool');
+  } finally {
+    global.fetch = originalFetch;
+    for (const [name, value] of Object.entries({ FEED_SOURCE_MODE: previous.mode, FEEDPILOT_BRIDGE_URL: previous.url, FEEDPILOT_BRIDGE_KEY: previous.key })) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
 test('bridgeEnabled respects FEED_SOURCE_MODE and FEEDPILOT_BRIDGE_ENABLED', () => {
   const prevMode = process.env.FEED_SOURCE_MODE;
   const prevEnabled = process.env.FEEDPILOT_BRIDGE_ENABLED;

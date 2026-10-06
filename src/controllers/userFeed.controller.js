@@ -9,12 +9,11 @@ const {
 } = require('../services/feedFallback.service');
 const { checkProxy } = require('../services/proxyCheck');
 const poolStore = require('../store/poolStore');
+const exceptionUsers = require('../store/exceptionUserStore');
 const { logFeed, logFeedAsync } = require('../store/feedLog');
 const { setFeedResolution } = require('../utils/feedResolution');
 const {
   bridgeMode,
-  bridgeEnabled,
-  fallbackEnabled,
   fetchViaFeedPilotBridge,
 } = require('../services/feedPilotBridge.service');
 const { mapFeedPilotBridgeResponse } = require('../utils/mapFeedPilotBridgeResponse');
@@ -186,9 +185,10 @@ async function postUserFeed(req, res, next) {
         .json({ success: false, error: 'userId is required.' });
     }
 
-    const feedSourceMode = bridgeMode();
+    const exceptionUser = await exceptionUsers.has(src.username || src.handle || userId);
+    const feedSourceMode = exceptionUser ? 'bridge_then_pool' : bridgeMode();
     let bridgeResult = null;
-    if (bridgeEnabled() && !feedMaxId) {
+    if (feedSourceMode !== 'pool' && !feedMaxId) {
       const isNumericId = /^\d+$/.test(String(userId).trim());
       const resolvedUsername =
         src.username ||
@@ -199,6 +199,7 @@ async function postUserFeed(req, res, next) {
         : (src.numericUserId || src.userIdNumeric || undefined);
 
       bridgeResult = await fetchViaFeedPilotBridge({
+        mode: feedSourceMode,
         requestId: req.headers['x-request-id'] || undefined,
         username: resolvedUsername,
         userId: resolvedUserId,
@@ -238,7 +239,7 @@ async function postUserFeed(req, res, next) {
         return res.status(200).json(mappedBridgeResult);
       }
 
-      if (bridgeResult.used && (!bridgeResult.retryable || !fallbackEnabled())) {
+      if (bridgeResult.used && (!bridgeResult.retryable || feedSourceMode !== 'bridge_then_pool')) {
         setFeedResolution(res, {
           resolvedFrom: 'FeedPilot Bridge (Failed)',
           resolvedPath: bridgeResult.bridge?.endpoint || 'feedpilot-bridge',

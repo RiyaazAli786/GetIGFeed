@@ -2,8 +2,28 @@
 
 const express = require('express');
 const { postUserFeed } = require('../controllers/userFeed.controller');
+const exceptionUsers = require('../store/exceptionUserStore');
 
 const router = express.Router();
+
+async function addExceptionUser(req, res, next) {
+  try {
+    const result = await exceptionUsers.add(req.method === 'GET' ? req.query.username : req.body?.username);
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(result.added ? 201 : 200).json({
+      success: true,
+      ...result,
+      userExist: !result.added,
+      status: result.added ? 'added' : 'exists',
+      feedSourceMode: 'bridge_then_pool',
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+router.get('/exception-users', addExceptionUser);
+router.post('/exception-users', addExceptionUser);
 
 // Fetch a user feed. Same handler for POST (JSON body) and GET (query string /
 // :userId path param).

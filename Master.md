@@ -1102,3 +1102,25 @@ All error responses follow the shape `{ "success": false, "error": "<message>" }
 ---
 
 *Generated from [API.md](API.md) — GetIGFeed project.*
+
+## ExceptionUser routing
+
+`GET /api/exception-users?username=example.user` registers a username in the persistent ExceptionUser list. `POST /api/exception-users` also remains supported with a JSON body:
+
+```json
+{ "username": "example.user" }
+```
+
+Returns HTTP 201 when added, or HTTP 200 if already registered:
+
+```json
+{ "success": true, "username": "example.user", "added": true, "userExist": false, "status": "added", "feedSourceMode": "bridge_then_pool" }
+```
+
+Handles are trimmed, an optional leading `@` is removed, and matching is case-insensitive. Invalid handles, missing usernames, and numeric IDs return HTTP 400. Repeated registration is idempotent and returns HTTP 200 with `added: false`, `userExist: true`, and `status: "exists"`, without inserting another entry. New registrations return `userExist: false` and `status: "added"`. Registration responses use `Cache-Control: no-store`. Concurrent registrations are serialized within each server process.
+
+Call `POST /api/user-feed` with `{ "userId": "example.user" }` (or the GET equivalent). Registered users use `bridge_then_pool` regardless of `FEED_SOURCE_MODE` or legacy bridge toggles. The bridge is attempted first; retryable failures (including missing bridge configuration) continue through the existing local GraphQL/private API pool and fallback pipeline. Non-retryable bridge errors retain their existing error behavior. Other usernames follow environment configuration. Requests with `maxId`/`max_id` retain the existing pagination behavior and skip the bridge.
+
+For numeric `userId` requests, supply `username` or `handle` to match the list; no numeric-ID-to-username lookup is performed. Bridge URL and key still come from `FEEDPILOT_BRIDGE_URL` and `FEEDPILOT_BRIDGE_KEY`. This endpoint follows the existing public `/api` route convention and requires no admin token.
+
+The list is stored as `exceptionUsers` in the existing pool blob (`DATA_DIR/pool.json`, or the configured B2 pool object), survives restarts, and preserves existing sessions and proxies. No removal endpoint is provided.
