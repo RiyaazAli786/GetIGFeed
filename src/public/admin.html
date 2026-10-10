@@ -196,6 +196,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="sessions" id="tabSessions">Sessions</button>
     <button class="tab" data-tab="proxies" id="tabProxies">Proxies</button>
+    <button class="tab" data-tab="exceptions" id="tabExceptions">Exception Users</button>
     <button class="tab" data-tab="feed" id="tabFeed">Fetch Feed</button>
     <button class="tab" data-tab="stories" id="tabStories">Stories &amp; Highlights</button>
   </div>
@@ -251,6 +252,36 @@
         <tbody id="prox-rows"></tbody>
       </table>
       <div class="empty" id="prox-empty" style="display:none">No proxies stored.</div>
+    </div>
+  </section>
+
+  <!-- Exception Users -->
+  <section id="view-exceptions" style="display:none">
+    <div class="panel">
+      <h2>Add exception users <span class="count">(one per line or comma/space separated — saved directly to server)</span></h2>
+      <label class="fld"><span>Instagram usernames</span>
+        <textarea id="ex-add" placeholder="example.user&#10;@another_user"></textarea>
+      </label>
+      <div class="row" style="margin-top:10px">
+        <button class="btn btn-primary" id="ex-add-btn">Add Exception Users</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <h2 style="margin:0">Stored exception users <span class="count" id="ex-count"></span></h2>
+        <input id="ex-search" placeholder="Search handles..." style="max-width:220px;padding:5px 9px;font-size:12.5px;" />
+      </div>
+      <table>
+        <thead><tr><th>Handle</th><th>Priority Mode</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="ex-rows"></tbody>
+      </table>
+      <div class="empty" id="ex-empty" style="display:none">No exception users stored.</div>
+      <div class="row" id="ex-pager" style="margin-top:14px;justify-content:space-between;display:none;">
+        <button class="btn btn-sm" id="ex-prev">Previous</button>
+        <span class="muted" id="ex-page-info" style="font-size:12px;align-self:center;"></span>
+        <button class="btn btn-sm" id="ex-next">Next</button>
+      </div>
     </div>
   </section>
 
@@ -578,6 +609,48 @@
 
   var sessionCache = [];
   var proxyCache = [];
+  var exPage = 1;
+  var exPages = 1;
+  var exSearch = '';
+
+  function renderExceptions(data) {
+    var list = data.users || [];
+    $('ex-count').textContent = '· ' + (data.total !== undefined ? data.total : list.length);
+    var tb = $('ex-rows'); tb.innerHTML = '';
+    $('ex-empty').style.display = list.length ? 'none' : 'block';
+    list.forEach(function (u) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="mono"><b>@' + esc(u) + '</b></td>' +
+        '<td><span class="badge ok">bridge_then_pool</span></td>' +
+        '<td class="muted"><span class="badge ok">active</span></td>' +
+        '<td><div class="actions">' +
+          '<button class="btn btn-danger btn-sm" data-del-ex="' + esc(u) + '">Delete</button>' +
+        '</div></td>';
+      tb.appendChild(tr);
+    });
+    exPage = data.page || 1;
+    exPages = data.pages || 1;
+    if (exPages > 1) {
+      $('ex-pager').style.display = 'flex';
+      $('ex-page-info').textContent = 'Page ' + exPage + ' of ' + exPages;
+      $('ex-prev').disabled = exPage <= 1;
+      $('ex-next').disabled = exPage >= exPages;
+    } else {
+      $('ex-pager').style.display = 'none';
+    }
+  }
+
+  function loadExceptions() {
+    var url = '/api/exception-users?page=' + exPage + '&pageSize=25';
+    if (exSearch) url += '&search=' + encodeURIComponent(exSearch);
+    return fetch(url).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) throw new Error(d.error || 'Failed to load exception users');
+        renderExceptions(d);
+      });
+    });
+  }
 
   function loadSessions() {
     return api('GET', '/sessions').then(function (d) {
@@ -594,6 +667,7 @@
   function refreshAll() {
     loadSessions().catch(function (e) { toast(e.message, 'err'); });
     loadProxies().catch(function (e) { toast(e.message, 'err'); });
+    loadExceptions().catch(function (e) { toast(e.message, 'err'); });
   }
 
   // ---- Modal (edit) ----
@@ -691,9 +765,9 @@
   });
 
   // Tabs
-  var TABS = ['sessions', 'proxies', 'feed', 'stories'];
+  var TABS = ['sessions', 'proxies', 'exceptions', 'feed', 'stories'];
   var TAB_BUTTONS = {
-    sessions: 'tabSessions', proxies: 'tabProxies', feed: 'tabFeed', stories: 'tabStories'
+    sessions: 'tabSessions', proxies: 'tabProxies', exceptions: 'tabExceptions', feed: 'tabFeed', stories: 'tabStories'
   };
   function selectTab(name) {
     currentTab = name;
@@ -701,9 +775,69 @@
       $(TAB_BUTTONS[tab]).classList.toggle('active', tab === name);
       $('view-' + tab).style.display = tab === name ? 'block' : 'none';
     });
+    if (name === 'exceptions') loadExceptions();
   }
   TABS.forEach(function (tab) {
     $(TAB_BUTTONS[tab]).addEventListener('click', function () { selectTab(tab); });
+  });
+
+  // Exception users controls
+  $('ex-add-btn').addEventListener('click', function () {
+    var raw = $('ex-add').value.trim();
+    if (!raw) { toast('Nothing to add', 'err'); return; }
+    var handles = raw.split(/[\r\n,]+/).map(function (s) { return s.trim().replace(/^@/, ''); }).filter(Boolean);
+    if (!handles.length) { toast('No valid handles', 'err'); return; }
+    var addedCount = 0;
+    var promises = handles.map(function (h) {
+      return fetch('/api/exception-users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: h })
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        if (res.success && res.added) addedCount++;
+      });
+    });
+    Promise.all(promises).then(function () {
+      toast('Processed ' + handles.length + ' handles (' + addedCount + ' added)', 'ok');
+      $('ex-add').value = '';
+      loadExceptions();
+    }).catch(function (err) { toast(err.message, 'err'); });
+  });
+
+  $('ex-rows').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-del-ex]');
+    if (!btn) return;
+    var user = btn.getAttribute('data-del-ex');
+    askConfirm({
+      title: 'Delete Exception User',
+      message: 'Remove @' + user + ' from the exception list? It will no longer bypass default routing.'
+    }).then(function (yes) {
+      if (!yes) return;
+      fetch('/api/exception-users/' + encodeURIComponent(user), { method: 'DELETE' })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (!res.success) throw new Error(res.error || 'Failed to remove user');
+          toast('Removed @' + user, 'ok');
+          loadExceptions();
+        })
+        .catch(function (err) { toast(err.message, 'err'); });
+    });
+  });
+
+  var searchTimer = null;
+  $('ex-search').addEventListener('input', function (e) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () {
+      exSearch = e.target.value.trim();
+      exPage = 1;
+      loadExceptions();
+    }, 300);
+  });
+  $('ex-prev').addEventListener('click', function () {
+    if (exPage > 1) { exPage--; loadExceptions(); }
+  });
+  $('ex-next').addEventListener('click', function () {
+    if (exPage < exPages) { exPage++; loadExceptions(); }
   });
 
   // Add sessions

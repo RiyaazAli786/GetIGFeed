@@ -1,6 +1,6 @@
 # GetIGFeed — Complete Workspace & Architecture Context
 
-> Living reference for the entire GetIGFeed repository. Last updated on 2026-10-04.
+> Living reference for the entire GetIGFeed repository. Last updated on 2026-10-10.
 > Companion docs: [Master.md](file:///c:/CoreProjects/GetIGFeed/Master.md) (API Reference), [API.md](file:///c:/CoreProjects/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///c:/CoreProjects/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment), [PROJECT_CONTEXT.md](file:///c:/CoreProjects/GetIGFeed/PROJECT_CONTEXT.md) (Project Context).
 
 ---
@@ -103,6 +103,7 @@ GetIGFeed/
 │   │   ├── poolStore.js               # Round-robin session & proxy pool manager
 │   │   ├── poolBackend.js             # File system vs Backblaze B2 backend switcher
 │   │   ├── tokenStore.js              # Session token cache
+│   │   ├── exceptionUserStore.js      # Persistent ExceptionUser list storage & CRUD
 │   │   └── feedLog.js                 # Audit logger for incoming feed requests
 │   ├── parsers/              # Response payload normalization
 │   ├── middleware/           # Express middlewares
@@ -180,6 +181,10 @@ GetIGFeed/
 | `/admin/proxies` | GET / POST / DELETE | Admin Token | Manage proxy pool |
 | `/admin/proxies/:id/check` | POST | Admin Token | Tests proxy latency and exit IP |
 | `/api/user-feed[/:userId]` | GET / POST | Public / Pool | Fetches feed timeline, stories & highlights |
+| `/api/exception-users` | GET | Public | Lists exception users (supports `search`, `page`, `pageSize`) or registers if `?username=` supplied |
+| `/api/exception-users` | POST | Public | Registers a username in the persistent ExceptionUser list |
+| `/api/exception-users/:username` | PUT | Public | Updates/renames an existing exception username |
+| `/api/exception-users/:username` | DELETE | Public | Removes a username from the persistent ExceptionUser list |
 | `/api/instagram/search[/:username]` | GET / POST | Public | Fetches public stories & highlights |
 | `/api/instagram/download/zip` | POST | Public | Direct zip stream of stories/highlights |
 | `/api/instagram/download/zip/start` | POST | Public | Starts async zip job for SSE streaming |
@@ -195,7 +200,7 @@ GetIGFeed/
 
 ## 5. Execution & Testing
 
-- `npm.cmd test`: Runs built-in test suite (40/40 tests passing).
+- `npm.cmd test`: Runs built-in test suite (43/43 tests passing).
 - `npm.cmd run test:hover-card -- <handle>`: Runs Polaris hover card profile resolution CLI test.
 - `npm.cmd run dev`: Development server with nodemon reload.
 - `npm start`: Production server bootstrap.
@@ -203,24 +208,64 @@ GetIGFeed/
 - `npm run anonyig:chunk`: Refreshes AnonyIG signing chunk and mirrors to B2.
 - `npm run fastdl:chunk`: Refreshes FastDL signing chunk and mirrors to B2.
 
-## ExceptionUser routing
+## ExceptionUser Routing & Management
 
-`GET /api/exception-users?username=example.user` registers a username in the persistent ExceptionUser list. `POST /api/exception-users` also remains supported with a JSON body:
+The persistent ExceptionUser system ensures high-priority accounts bypass default mode settings and always prioritize the FeedPilot Android Bridge.
 
-```json
-{ "username": "example.user" }
-```
+### Registration
+- `POST /api/exception-users` with JSON `{ "username": "example.user" }`
+- `GET /api/exception-users?username=example.user` (legacy GET registration)
 
-Returns HTTP 201 when added, or HTTP 200 if already registered:
-
+Returns HTTP 201 when added:
 ```json
 { "success": true, "username": "example.user", "added": true, "userExist": false, "status": "added", "feedSourceMode": "bridge_then_pool" }
 ```
 
-Handles are trimmed, an optional leading `@` is removed, and matching is case-insensitive. Invalid handles, missing usernames, and numeric IDs return HTTP 400. Repeated registration is idempotent and returns HTTP 200 with `added: false`, `userExist: true`, and `status: "exists"`, without inserting another entry. New registrations return `userExist: false` and `status: "added"`. Registration responses use `Cache-Control: no-store`. Concurrent registrations are serialized within each server process.
+Returns HTTP 200 if already registered (idempotent):
+```json
+{ "success": true, "username": "example.user", "added": false, "userExist": true, "status": "exists", "feedSourceMode": "bridge_then_pool" }
+```
 
-Call `POST /api/user-feed` with `{ "userId": "example.user" }` (or the GET equivalent). Registered users use `bridge_then_pool` regardless of `FEED_SOURCE_MODE` or legacy bridge toggles. The bridge is attempted first; retryable failures (including missing bridge configuration) continue through the existing local GraphQL/private API pool and fallback pipeline. Non-retryable bridge errors retain their existing error behavior. Other usernames follow environment configuration. Requests with `maxId`/`max_id` retain the existing pagination behavior and skip the bridge.
+### Listing (Search & Pagination)
+- `GET /api/exception-users` (when `username` parameter is omitted)
+- Query parameters:
+  - `search` (string, optional): Case-insensitive substring filter (trimmed, leading `@` removed).
+  - `page` (integer, optional): 1-based page index (defaults to `1`).
+  - `pageSize` (integer, optional): Page size (defaults to `25`, clamped between `1` and `100`).
 
-For numeric `userId` requests, supply `username` or `handle` to match the list; no numeric-ID-to-username lookup is performed. Bridge URL and key still come from `FEEDPILOT_BRIDGE_URL` and `FEEDPILOT_BRIDGE_KEY`. This endpoint follows the existing public `/api` route convention and requires no admin token.
+Returns HTTP 200:
+```json
+{
+  "success": true,
+  "users": ["example.user"],
+  "total": 1,
+  "page": 1,
+  "pageSize": 25,
+  "pages": 1
+}
+```
 
-The list is stored as `exceptionUsers` in the existing pool blob (`DATA_DIR/pool.json`, or the configured B2 pool object), survives restarts, and preserves existing sessions and proxies. No removal endpoint is provided.
+### Update / Rename
+- `PUT /api/exception-users/:username` with JSON `{ "username": "new_handle" }`
+- Returns HTTP 200:
+  ```json
+  { "success": true, "username": "new_handle" }
+  ```
+- Returns HTTP 400 if target or new handle is invalid.
+- Returns HTTP 404 if target user is not in the list.
+- Returns HTTP 409 if new handle already exists in the list.
+
+### Removal
+- `DELETE /api/exception-users/:username`
+- Returns HTTP 200:
+  ```json
+  { "success": true, "username": "example.user", "deleted": true }
+  ```
+- Returns HTTP 400 if username is invalid.
+- Returns HTTP 404 if user is not in the list.
+
+### Feed Execution & Persistence Semantics
+- **Priority Routing**: Requests to `POST /api/user-feed` or `GET /api/user-feed/:userId` matching any registered exception user automatically execute with `bridge_then_pool` regardless of `FEED_SOURCE_MODE` or bridge toggles. The bridge is attempted first; retryable failures automatically fail over to pool GraphQL / private API / fallback tiers.
+- **Normalization**: Usernames are trimmed, leading `@` is stripped, and matching is case-insensitive. Numeric IDs return HTTP 400 (for numeric `userId` feed requests, provide `username` or `handle`).
+- **Concurrency & Cache**: Mutations (`add`, `update`, `remove`) are serialized per-process via chained promises (`pendingAdd`). Reads (`list`, `has`) wait for pending mutations. All responses send `Cache-Control: no-store`.
+- **Storage**: Persisted under `exceptionUsers` in the pool storage (`data/pool.json` or B2 object) and survives restarts without modifying existing sessions or proxies.

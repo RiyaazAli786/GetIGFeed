@@ -139,6 +139,10 @@ function createB2Backend() {
 // ---------------------------------------------------------------------------
 
 function b2Configured() {
+  const backendType = (process.env.STORAGE_BACKEND || '').toLowerCase().trim();
+  if (backendType && backendType !== 'b2') {
+    return false;
+  }
   return Boolean(
     process.env.B2_KEY_ID &&
       process.env.B2_APPLICATION_KEY &&
