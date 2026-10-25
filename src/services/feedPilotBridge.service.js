@@ -59,6 +59,7 @@ function isRetryableBridgeError(code, status) {
       'TEMPORARY_NETWORK_ERROR',
       'NETWORK_TIMEOUT',
       'IG_EMPTY_FEED',
+      'IG_PROFILE_MISMATCH',
       'IG_SESSION_EXPIRED',
       'IG_CHECKPOINT_REQUIRED',
       'IG_CAPTCHA_REQUIRED',

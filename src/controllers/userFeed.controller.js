@@ -213,30 +213,40 @@ async function postUserFeed(req, res, next) {
           bridgeResult.data,
           bridgeResult.bridge
         );
-        res.setHeader('X-FeedPilot-Bridge', 'HIT');
-        const logFile = logFeed({
-          userId,
-          request: {
-            maxId: feedMaxId,
-            source: 'feedpilot-bridge',
-          },
-          result: mappedBridgeResult,
-        });
-        const bridgeEndpoint =
-          bridgeResult.bridge?.endpoint ||
-          (process.env.FEEDPILOT_BRIDGE_URL
-            ? `${process.env.FEEDPILOT_BRIDGE_URL.replace(/\/+$/, '')}/api/bridge/feed`
-            : 'feedpilot-bridge');
-        setFeedResolution(res, {
-          resolvedFrom: 'FeedPilot Bridge',
-          resolvedPath: bridgeEndpoint,
-          proxy: 'bridge-device',
-          logFile: logFile || undefined,
-          details: {
-            device: bridgeResult.bridge?.device || 'unknown',
-          },
-        });
-        return res.status(200).json(mappedBridgeResult);
+        const returnedUsername = mappedBridgeResult?.data?.user?.username;
+        const expectedUsername = resolvedUsername;
+        if (expectedUsername && returnedUsername && expectedUsername.toLowerCase() !== returnedUsername.toLowerCase()) {
+          bridgeResult.ok = false;
+          bridgeResult.used = true;
+          bridgeResult.retryable = true;
+          bridgeResult.message = `FeedPilot bridge profile mismatch: expected @${expectedUsername} but received @${returnedUsername}.`;
+          bridgeResult.code = 'IG_PROFILE_MISMATCH';
+        } else {
+          res.setHeader('X-FeedPilot-Bridge', 'HIT');
+          const logFile = logFeed({
+            userId,
+            request: {
+              maxId: feedMaxId,
+              source: 'feedpilot-bridge',
+            },
+            result: mappedBridgeResult,
+          });
+          const bridgeEndpoint =
+            bridgeResult.bridge?.endpoint ||
+            (process.env.FEEDPILOT_BRIDGE_URL
+              ? `${process.env.FEEDPILOT_BRIDGE_URL.replace(/\/+$/, '')}/api/bridge/feed`
+              : 'feedpilot-bridge');
+          setFeedResolution(res, {
+            resolvedFrom: 'FeedPilot Bridge',
+            resolvedPath: bridgeEndpoint,
+            proxy: 'bridge-device',
+            logFile: logFile || undefined,
+            details: {
+              device: bridgeResult.bridge?.device || 'unknown',
+            },
+          });
+          return res.status(200).json(mappedBridgeResult);
+        }
       }
 
       if (bridgeResult.used && (!bridgeResult.retryable || feedSourceMode !== 'bridge_then_pool')) {
