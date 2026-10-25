@@ -1,7 +1,7 @@
 # GetIGFeed — Complete Workspace & Architecture Context
 
 > Living reference for the entire GetIGFeed repository. Last updated on 2026-10-10.
-> Companion docs: [Master.md](file:///c:/CoreProjects/GetIGFeed/Master.md) (API Reference), [API.md](file:///c:/CoreProjects/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///c:/CoreProjects/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment), [PROJECT_CONTEXT.md](file:///c:/CoreProjects/GetIGFeed/PROJECT_CONTEXT.md) (Project Context).
+> Companion docs: [Master.md](file:///d:/CoreProject/GetIGFeed/Master.md) (API Reference), [API.md](file:///d:/CoreProject/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///d:/CoreProject/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///d:/CoreProject/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///d:/CoreProject/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment), [PROJECT_CONTEXT.md](file:///d:/CoreProject/GetIGFeed/PROJECT_CONTEXT.md) (Project Context).
 
 ---
 
