@@ -432,12 +432,18 @@ async function postUserFeed(req, res, next) {
           providers: remainingProviders.length ? remainingProviders : selectedFallbackProviders,
         });
       } catch (fallbackErr) {
-        if (privateFeedError) throw privateFeedError;
-        if (primaryGqlError && primaryGqlError.status !== 404) throw primaryGqlError;
+        const failures = [...(fallbackErr.failures || [])];
+        if (privateFeedError) {
+          failures.unshift({ provider: 'private_api', error: privateFeedError.message });
+        }
+        if (primaryGqlError) {
+          failures.unshift({ provider: 'graphql', error: primaryGqlError.message });
+        }
         const err = Object.assign(new Error(fallbackErr.message || 'All feed providers failed.'), {
           status: fallbackErr.status || 502,
-          failures: fallbackErr.failures || [],
+          failures,
           primaryGqlError: primaryGqlError?.message,
+          privateFeedError: privateFeedError?.message,
         });
         if (noAuthAvailable) {
           err.message =
