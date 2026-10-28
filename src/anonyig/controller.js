@@ -171,6 +171,7 @@ async function convertedFeed(req, res, next) {
     includeStories,
     includeHighlightDetails: flag(src.includeHighlightDetails ?? src.highlightDetails, true),
     highlightDetailLimit: src.highlightDetailLimit,
+    proxy: src.proxy,
   };
 
   try {
@@ -185,15 +186,23 @@ async function convertedFeed(req, res, next) {
         `[anonyig] convertedFeed failed for "${handle}" (${primaryError.message}) — attempting fallback`
       );
       const fallbackService = require('../services/feedFallback.service');
+      const fallbackProviders = src.providers || src.fallbackProviders;
       const fallbackResult = await fallbackService.getFallbackFeed(handle, {
         ...opts,
+        failedSource: 'anonyig',
         reason: primaryError.message,
+        providers: fallbackProviders ? String(fallbackProviders).split(',') : undefined,
+        excludeProviders: ['anonyig'],
       });
       return res.json(fallbackResult);
     } catch (fallbackError) {
       console.error(
         `[anonyig] fallback also failed for "${handle}": ${fallbackError.message}`
       );
+      primaryError.status = primaryError.status || 502;
+      if (Array.isArray(fallbackError.failures) && fallbackError.failures.length > 0) {
+        primaryError.failures = fallbackError.failures;
+      }
       return next(primaryError);
     }
   }

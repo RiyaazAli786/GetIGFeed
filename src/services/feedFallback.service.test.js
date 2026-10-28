@@ -47,6 +47,12 @@ test('orderedProviders rotates workers when rotate: true is passed on an array',
   );
 });
 
+test('orderedProviders excludes specified providers when exclude is supplied', () => {
+  const result = orderedProviders(['graphql', 'igram', 'anonyig', 'fastdl'], {
+    exclude: ['anonyig'],
+  });
+  assert.deepEqual(result, ['graphql', 'igram', 'fastdl']);
+});
 
 test('shouldFallbackForPrivateResult only triggers on empty 401-like failures', () => {
   assert.equal(

@@ -32,7 +32,15 @@ function errorHandler(err, req, res, next) {
     console.error('[error]', err.stack || err.message);
   }
 
-  res.status(status).json({ success: false, error: message });
+  const response = { success: false, error: message };
+  if (Array.isArray(err.failures) && err.failures.length > 0) {
+    response.failures = err.failures;
+  }
+  if (err.code) {
+    response.code = err.code;
+  }
+
+  res.status(status).json(response);
 }
 
 module.exports = { notFound, errorHandler };

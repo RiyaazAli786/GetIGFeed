@@ -5,6 +5,8 @@ const fastdl = require('../fastdl/service');
 const igram = require('../igram/service');
 const graphql = require('../graphql/service');
 const poolStore = require('../store/poolStore');
+const { fetchViaFeedPilotBridge } = require('./feedPilotBridge.service');
+const { mapFeedPilotBridgeResponse } = require('../utils/mapFeedPilotBridgeResponse');
 
 const PROVIDERS = {
   graphql: (username, opts) => graphql.fetchFromGraphQL(username, {
@@ -18,6 +20,21 @@ const PROVIDERS = {
   igram: (username, opts) => igram.getConvertedFeed(username, opts),
   anonyig: (username, opts) => anonyig.getConvertedFeed(username, opts),
   fastdl: (username, opts) => fastdl.getConvertedFeed(username, opts),
+  bridge: async (username, opts) => {
+    const res = await fetchViaFeedPilotBridge({
+      username,
+      limit: opts.first || opts.count || 12,
+      includeStories: Boolean(opts.includeStories),
+    });
+    if (!res.ok) {
+      const err = new Error(res.message || 'FeedPilot bridge failed.');
+      err.status = res.status || 502;
+      err.code = res.code;
+      throw err;
+    }
+    return mapFeedPilotBridgeResponse(res.data, res.bridge);
+  },
+  feedpilot: (username, opts) => PROVIDERS.bridge(username, opts),
 };
 // GraphQL can reuse a valid pool session; IGram then provides the first
 // sessionless fallback, followed by the signed worker hubs.
@@ -43,17 +60,21 @@ function normalizeUsername(value) {
 }
 
 function providerList(value = process.env.FEED_FALLBACK_PROVIDERS) {
-  const source = value == null || String(value).trim() === ''
+  const source = value == null || (typeof value === 'string' && value.trim() === '')
     ? DEFAULT_PROVIDERS
-    : String(value).split(',');
+    : (Array.isArray(value) ? value : String(value).split(','));
   const names = source
-    .map((name) => name.trim().toLowerCase())
+    .map((name) => String(name).trim().toLowerCase())
     .filter(Boolean);
   return names.filter((name, index) => PROVIDERS[name] && names.indexOf(name) === index);
 }
 
-function orderedProviders(value = process.env.FEED_FALLBACK_PROVIDERS, { rotate = false } = {}) {
-  const providers = providerList(value);
+function orderedProviders(value = process.env.FEED_FALLBACK_PROVIDERS, { rotate = false, exclude = [] } = {}) {
+  let providers = providerList(value);
+  if (Array.isArray(exclude) && exclude.length) {
+    const excludeSet = new Set(exclude.map((e) => String(e).trim().toLowerCase()));
+    providers = providers.filter((p) => !excludeSet.has(p));
+  }
   if (Array.isArray(value) && !rotate) return providers;
 
   const nonWorkers = providers.filter((provider) => !WORKER_PROVIDERS.includes(provider));
@@ -126,9 +147,12 @@ async function getFallbackFeed(userId, opts = {}) {
   }
 
   const failures = [];
-  for (const provider of orderedProviders(opts.providers, { rotate: !opts.explicitOrder })) {
+  const exclude = [
+    ...(opts.excludeProviders || []),
+    ...(opts.failedSource ? [opts.failedSource] : []),
+  ];
+  for (const provider of orderedProviders(opts.providers, { rotate: !opts.explicitOrder, exclude })) {
     try {
-
       const attemptOptions = providerOptions(provider, opts);
       const result = await PROVIDERS[provider](username, attemptOptions);
       if (!hasFeedItems(result)) {

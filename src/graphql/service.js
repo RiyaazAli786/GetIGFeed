@@ -74,13 +74,15 @@ function graphQLWebHeaders(param = {}, csrfToken = '') {
 /**
  * Resolve a handle to its numeric Instagram user ID.
  *
- * Three strategies tried in order (first win returns):
+ * Strategies tried in order (first win returns):
  *   1. Native HTTPS fetch of web_profile_info — public, no session, no pool
  *      client base-URL conflicts. Works for any public account.
  *   2. anonyig getUser — the anonyig module already resolves this reliably
  *      and returns `data.id`. Used when strategy 1 fails (e.g. rate-limited).
  *   3. Pool client web_profile_info with auth headers — last resort if both
  *      public paths fail.
+ *   4. Sessionless story viewer profile lookup (storynavigation / asmn).
+ *   5. FastDL userInfo lookup.
  */
 async function resolveUserId(username) {
   const clean = String(username || '').trim().replace(/^@/, '');
@@ -111,6 +113,22 @@ async function resolveUserId(username) {
       `username=${encodeURIComponent(username)}`;
     const r = await param.client.get(url, { headers });
     const id = r.data?.data?.user?.id ?? r.data?.data?.user?.pk_id;
+    if (id && String(id).match(/^\d+$/)) return String(id);
+  } catch (_) {}
+
+  // ── Strategy 4: third-party story viewer profile lookup (sessionless) ────
+  try {
+    const { fetchMedia } = require('../services/instagramStory.service');
+    const media = await fetchMedia(clean);
+    const id = media?.model?.id || media?.model?.pk_id;
+    if (id && String(id).match(/^\d+$/)) return String(id);
+  } catch (_) {}
+
+  // ── Strategy 5: FastDL userInfo ──────────────────────────────────────────
+  try {
+    const fastdlService = require('../fastdl/service');
+    const res = await fastdlService.getClient().userInfo(clean);
+    const id = res?.result?.[0]?.user?.pk || res?.result?.[0]?.user?.id;
     if (id && String(id).match(/^\d+$/)) return String(id);
   } catch (_) {}
 
@@ -233,11 +251,13 @@ async function fetchFromGraphQL(username, opts = {}) {
   const baseHeaders = graphQLWebHeaders(param, csrfToken);
 
   // ── Step 1: Resolve user ID ──────────────────────────────────────────────
-  let userId;
+  let userId = opts.numericUserId || opts.userIdNumeric || (/^\d+$/.test(handle) ? handle : null);
   let profileUser = null;
   try {
-    profileUser = await fetchProfileForConvertedResponse(handle, null, param, baseHeaders);
-    userId = profileUser?.id ?? profileUser?.pk_id;
+    if (!userId) {
+      profileUser = await fetchProfileForConvertedResponse(handle, null, param, baseHeaders);
+      userId = profileUser?.id ?? profileUser?.pk_id;
+    }
     if (!userId || !String(userId).match(/^\d+$/)) userId = await resolveUserId(handle);
     userId = String(userId);
   } catch (err) {

@@ -325,6 +325,7 @@ async function postUserFeed(req, res, next) {
           includeStories: resolvedIncludeStories,
           includeHighlightDetails,
           highlightDetailLimit,
+          numericUserId: src.numericUserId || src.userIdNumeric,
         });
       } catch (err) {
         primaryGqlError = err;
@@ -431,13 +432,18 @@ async function postUserFeed(req, res, next) {
           providers: remainingProviders.length ? remainingProviders : selectedFallbackProviders,
         });
       } catch (fallbackErr) {
-        if (primaryGqlError && !privateFeedError) throw primaryGqlError;
         if (privateFeedError) throw privateFeedError;
+        if (primaryGqlError && primaryGqlError.status !== 404) throw primaryGqlError;
+        const err = Object.assign(new Error(fallbackErr.message || 'All feed providers failed.'), {
+          status: fallbackErr.status || 502,
+          failures: fallbackErr.failures || [],
+          primaryGqlError: primaryGqlError?.message,
+        });
         if (noAuthAvailable) {
-          fallbackErr.message =
-            `${fallbackErr.message} No auth was available for the private feed path.`;
+          err.message =
+            `${err.message} No auth was available for the private feed path.`;
         }
-        throw fallbackErr;
+        throw err;
       }
     } else if (primaryGqlError && !result) {
       throw primaryGqlError;
