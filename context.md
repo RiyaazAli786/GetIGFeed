@@ -1,7 +1,7 @@
 # GetIGFeed — Complete Workspace & Architecture Context
 
-> Living reference for the entire GetIGFeed repository. Last updated on 2026-10-10.
-> Companion docs: [Master.md](file:///d:/CoreProject/GetIGFeed/Master.md) (API Reference), [API.md](file:///d:/CoreProject/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///d:/CoreProject/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///d:/CoreProject/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///d:/CoreProject/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment), [PROJECT_CONTEXT.md](file:///d:/CoreProject/GetIGFeed/PROJECT_CONTEXT.md) (Project Context).
+> Living reference for the entire GetIGFeed repository. Last updated on 2026-10-29.
+> Companion docs: [Master.md](file:///d:/GetIGFeed/Master.md) (API Reference), [API.md](file:///d:/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///d:/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///d:/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///d:/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment), [PROJECT_CONTEXT.md](file:///d:/GetIGFeed/PROJECT_CONTEXT.md) (Project Context).
 
 ---
 
@@ -200,7 +200,7 @@ GetIGFeed/
 
 ## 5. Execution & Testing
 
-- `npm.cmd test`: Runs built-in test suite (43/43 tests passing).
+- `npm.cmd test`: Runs built-in test suite (44/44 tests passing).
 - `npm.cmd run test:hover-card -- <handle>`: Runs Polaris hover card profile resolution CLI test.
 - `npm.cmd run dev`: Development server with nodemon reload.
 - `npm start`: Production server bootstrap.

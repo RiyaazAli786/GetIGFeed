@@ -1,6 +1,6 @@
 # GetIGFeed Project Context
 
-Last built: 2026-10-10
+Last built: 2026-10-29
 
 ## What This Repo Is
 
@@ -64,7 +64,7 @@ Last built: 2026-10-10
 ## Current Health & Validation
 
 - **Test Suite**: Fully operational via `npm.cmd test`.
-- **Test Results** (43/43 passing):
+- **Test Results** (44/44 passing):
   - FastDL Config, Chunk Sources, VM Sandbox signer, Client methods, converted feed, and Input normalizers.
   - GraphQL Service exports and clean web headers (no mobile Authorization leak).
   - Numeric user ID resolution (`resolveUserId`) fast-path.

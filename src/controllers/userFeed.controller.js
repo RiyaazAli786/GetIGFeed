@@ -242,7 +242,18 @@ async function postUserFeed(req, res, next) {
             proxy: 'bridge-device',
             logFile: logFile || undefined,
             details: {
-              device: bridgeResult.bridge?.device || 'unknown',
+              device:
+                bridgeResult.bridge?.deviceId ||
+                bridgeResult.bridge?.device ||
+                bridgeResult.bridge?.device_id ||
+                bridgeResult.bridge?.deviceName ||
+                mappedBridgeResult?.feedpilot_bridge?.deviceId ||
+                bridgeResult.data?.deviceId ||
+                'unknown',
+              account:
+                bridgeResult.bridge?.accountUsername ||
+                mappedBridgeResult?.feedpilot_bridge?.accountUsername ||
+                undefined,
             },
           });
           return res.status(200).json(mappedBridgeResult);
