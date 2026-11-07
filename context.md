@@ -1,7 +1,7 @@
 # GetIGFeed — Complete Workspace & Architecture Context
 
-> Living reference for the entire GetIGFeed repository. Last updated on 2026-10-29.
-> Companion docs: [Master.md](file:///d:/GetIGFeed/Master.md) (API Reference), [API.md](file:///d:/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///d:/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///d:/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///d:/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment), [PROJECT_CONTEXT.md](file:///d:/GetIGFeed/PROJECT_CONTEXT.md) (Project Context).
+> Living reference for the entire GetIGFeed repository. Last updated on 2026-11-07.
+> Companion docs: [Master.md](file:///c:/CoreProjects/GetIGFeed/Master.md) (API Reference), [API.md](file:///c:/CoreProjects/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///c:/CoreProjects/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment), [PROJECT_CONTEXT.md](file:///c:/CoreProjects/GetIGFeed/PROJECT_CONTEXT.md) (Project Context).
 
 ---
 
@@ -9,13 +9,14 @@
 
 **GetIGFeed** is a high-performance, resilient Node.js / Express API microservice and multi-tiered scraping engine designed to fetch Instagram user feeds, stories, highlights, posts, reels, and media assets. It acts as an intelligent orchestration layer across:
 
-1. **FeedPilot Android Device Bridge**: Direct physical Android device execution for anti-bot bypass.
+1. **FeedPilot Android Device Bridge**: Direct physical Android device execution for anti-bot bypass with `IG_PROFILE_MISMATCH` account validation.
 2. **Instagram Private Mobile API**: Direct `/api/v1/` mobile endpoint fetching with session cookie jars and rotating proxies.
 3. **Polaris GraphQL Hover Card Enrichment**: Resolves complete profile counts (followers/following) while preserving the requested user handle against collaborator post overrides.
-4. **Automated Session & Proxy Pool**: Round-robin rotation, proxy validation, automated failover, and dual persistence backends (local filesystem or Backblaze B2). Supports Chrome cookie export JSON arrays.
-5. **Sessionless Fallback Engine**: Automatic failover to public providers (IGram, AnonyIG, FastDL) on 401, challenge, or empty session pool.
-6. **Third-Party Story Platforms & Signed HTTP/2 Worker Hubs**: IGram, AnonyIG, and FastDL signed worker hub clients.
-7. **Telegram Telemetry & Audit**: Real-time request, response, and feed resolution logging to Telegram with sensitive credential masking.
+4. **5-Strategy Numeric User ID Resolver**: Resolves handles to numeric IDs via native HTTPS `web_profile_info`, AnonyIG `getUser`, pool client web queries, sessionless story viewers (`storynavigation`/`theasmn`), and FastDL `userInfo`, alongside a fast-path `numericUserId` bypass.
+5. **Automated Session & Proxy Pool**: Round-robin rotation, proxy validation, automated failover, and dual persistence backends (local filesystem or Backblaze B2). Supports Chrome cookie export JSON arrays.
+6. **Multi-Tier Public Fallback Engine**: Automatic failover to public providers (`graphql`, `igram`, `anonyig`, `fastdl`, `bridge`) with loop exclusion (`excludeProviders`) and comprehensive error aggregation (`failures` array in 502 responses).
+7. **Third-Party Story Platforms & Signed HTTP/2 Worker Hubs**: IGram, AnonyIG, and FastDL signed worker hub clients with per-request proxy routing.
+8. **Telegram Telemetry & Audit**: Real-time request, response, and feed resolution logging to Telegram with sensitive credential masking.
 
 ---
 
@@ -44,9 +45,10 @@
  │                               │                               │                                        │
  ▼                               ▼                               ▼                                        ▼
 ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────────────────┐
-│ FeedPilot Bridge     │ │ Private Mobile API   │ │ Sessionless Fallback │ │ Session & Proxy Pool Store   │
-│ (src/services/       │ │ (src/services/       │ │ Engine (IGram,       │ │ (src/store/poolStore.js)     │
-│  feedPilotBridge)    │ │  instagram.service)  │ │  AnonyIG & FastDL)   │ │ Encrypted AES-256-GCM        │
+│ FeedPilot Bridge     │ │ Private Mobile API   │ │ Multi-Tier Fallback  │ │ Session & Proxy Pool Store   │
+│ (src/services/       │ │ & GraphQL Service    │ │ Engine (IGram,       │ │ (src/store/poolStore.js)     │
+│  feedPilotBridge)    │ │ (src/services/       │ │  AnonyIG, FastDL,    │ │ Encrypted AES-256-GCM        │
+│                      │ │  instagram, graphql) │ │  GraphQL, Bridge)    │ │                              │
 └──────────┬───────────┘ └──────────┬───────────┘ └──────────┬───────────┘ └──────────────┬───────────────┘
            │                        │                        │                            │
            │ X-Bridge-Key Auth      │ Proxy & Cookie Agent   │ HTTP/2 Signed Headers      │ Persistence Layer
@@ -98,7 +100,7 @@ GetIGFeed/
 │   ├── igram/                # IGram worker hub subsystem & feed conversion
 │   ├── anonyig/              # Anonyig worker hub subsystem (HTTP/2 transport)
 │   ├── fastdl/               # FastDL.app worker hub subsystem
-│   ├── graphql/              # Direct Instagram GraphQL timeline module
+│   ├── graphql/              # Direct Instagram GraphQL timeline module & 5-tier ID resolver
 │   ├── store/                # In-memory storage & persistence engines
 │   │   ├── poolStore.js               # Round-robin session & proxy pool manager
 │   │   ├── poolBackend.js             # File system vs Backblaze B2 backend switcher
@@ -107,7 +109,7 @@ GetIGFeed/
 │   │   └── feedLog.js                 # Audit logger for incoming feed requests
 │   ├── parsers/              # Response payload normalization
 │   ├── middleware/           # Express middlewares
-│   │   ├── errorHandler.js            # Global error handler & 404
+│   │   ├── errorHandler.js            # Global error handler & failure serializer
 │   │   └── telegramRequestLogger.js   # Audit logger dispatching to Telegram
 │   ├── utils/                # Utilities
 │   │   ├── mapFeedPilotBridgeResponse.js # Mappers for FeedPilot Android bridge payloads
@@ -138,8 +140,15 @@ GetIGFeed/
 ### 3.1 FeedPilot Android Device Bridge (`src/services/feedPilotBridge.service.js`)
 * Bridges feed requests to external real Android hardware devices running Instagram.
 * Governed by `FEED_SOURCE_MODE` (`bridge_then_pool`, `android_bridge`, `pool`).
-* Automatically falls back to local pool/session scraping upon retryable errors (503, 504, device offline, timeouts).
-* Normalizes response via `mapFeedPilotBridgeResponse.js` into standard `web_profile_info`.
+* Automatically falls back to local pool/session scraping upon retryable errors (502, 503, 504, `NO_ACTIVE_DEVICE`, `NO_ACTIVE_SESSION`, `DEVICE_OFFLINE`, `IG_EMPTY_FEED`).
+* **Handle Mismatch Guard**: Verifies that the returned account username matches the requested username. If an Android device served another user's feed, it is classified as `IG_PROFILE_MISMATCH` and retried through pool/fallback tiers.
+* **Username Sanitization (`sanitizeBridgeUsername`)**:
+  - Automatically strips leading `@` characters (`@wwe` -> `wwe`).
+  - Resolves profile URLs to clean handles (`https://www.instagram.com/wwe/` -> `wwe`).
+  - Rejects post URLs (`/p/...`), reel URLs (`/reel/...`, `/reels/...`), TV URLs (`/tv/...`), story media links, and reserved Instagram routes.
+  - Rejects strings containing internal `@` characters (e.g. emails) or pure numeric IDs.
+  - Rejects invalid targets prior to dispatching requests to Android automation devices (`INVALID_BRIDGE_TARGET`).
+* Normalizes responses via `mapFeedPilotBridgeResponse.js` into standard `web_profile_info`.
 
 ### 3.2 Session & Proxy Pool Engine (`src/store/poolStore.js`)
 * **Round-Robin Rotation**: Cycles active sessions and proxies.
@@ -153,19 +162,30 @@ GetIGFeed/
 * Ensures complete profile data via Polaris hover card GraphQL queries (`PolarisUserHoverCardContentV2Query`).
 * Guarantees profile attribution by prioritizing the requested username over collaborator tags.
 
-### 3.4 Multi-Tier Fallback Engine (`src/services/feedFallback.service.js`)
+### 3.4 5-Strategy Numeric User ID Resolution (`src/graphql/service.js`)
+* Resolves handles to numeric IDs via up to 5 progressive strategies:
+  1. Public `web_profile_info` native HTTPS fetch.
+  2. AnonyIG `getUser` client lookup.
+  3. Pool client authenticated `web_profile_info` query.
+  4. Sessionless story viewer profile lookup (`fetchMedia` in `instagramStory.service.js`) via storynavigation / theasmn.
+  5. FastDL `userInfo` client query.
+* Fast-path bypass: Accepts `numericUserId` or `userIdNumeric` in query/body to eliminate network resolution calls immediately.
+
+### 3.5 Multi-Tier Fallback Engine (`src/services/feedFallback.service.js`)
 * Automatically activates when private sessions return 401, challenges, spam blocks, or when pool sessions are empty.
-* Fallback sequence: `FEED_FALLBACK_PROVIDERS` (default: `graphql`, `igram`, then rotating `anonyig`/`fastdl`).
-* Respects per-request/environment switches for IGram (`USER_FEED_IGRAM_FALLBACK`) and worker hubs (`USER_FEED_HUB_FALLBACK`).
-* Re-formats external provider data into standard `web_profile_info`.
+* Fallback sequence: `FEED_FALLBACK_PROVIDERS` (default: `graphql`, `igram`, rotating `anonyig`/`fastdl`, and optional `bridge`/`feedpilot`).
+* **Loop Prevention**: Supports `excludeProviders` and `failedSource` to prevent a failing upstream source from calling itself.
+* **Failure Telemetry**: When all providers fail, returns HTTP 502 annotated with a complete `failures` array capturing each provider's error and status.
 
-### 3.5 Worker Hubs (IGram, AnonyIG & FastDL)
+### 3.6 Worker Hubs (IGram, AnonyIG & FastDL)
 * Sessionless Instagram data access over signed HTTP/2 transport layers and worker endpoints.
+* Supports per-request proxies (`?proxy=host:port:user:pass`) and provider selection.
 * Self-healing chunk mirror scripts (`npm run igram:chunk`, `npm run anonyig:chunk`, `npm run fastdl:chunk`) supporting local/B2 mirror sync.
+* Cloudflare Turnstile note: Datacenter IPs are challenged; residential or mobile proxies are required to bypass Turnstile.
 
-### 3.6 Telegram Telemetry & Feed Resolution (`src/middleware/telegramRequestLogger.js`, `src/utils/feedResolution.js`)
-* Dispatches audit logs of API requests, responses, status codes, execution latencies, and detailed feed resolution metadata (source, path, auth, proxy, fallback provider) directly to Telegram.
-* Automatic redacting of all authentication tokens, session cookies, passwords, and private headers.
+### 3.7 Telegram Telemetry & Structured Error Handling
+* **Telegram Logger (`src/middleware/telegramRequestLogger.js`, `src/utils/feedResolution.js`)**: Dispatches audit logs of API requests, responses, status codes, execution latencies, and detailed feed resolution metadata (source, path, auth, proxy, fallback provider) directly to Telegram with automatic secret redaction.
+* **Global Error Handler (`src/middleware/errorHandler.js`)**: Formats JSON errors `{ success: false, error: message, failures: [...], code: "..." }` preserving diagnostic details from multi-tier fallback chains.
 
 ---
 
@@ -180,19 +200,24 @@ GetIGFeed/
 | `/admin/sessions` | GET / POST / DELETE | Admin Token | Manage session pool |
 | `/admin/proxies` | GET / POST / DELETE | Admin Token | Manage proxy pool |
 | `/admin/proxies/:id/check` | POST | Admin Token | Tests proxy latency and exit IP |
-| `/api/user-feed[/:userId]` | GET / POST | Public / Pool | Fetches feed timeline, stories & highlights |
+| `/api/user-feed[/:userId]` | GET / POST | Public / Pool | Fetches feed timeline, stories & highlights (accepts `numericUserId`, `proxy`, `providers`) |
 | `/api/exception-users` | GET | Public | Lists exception users (supports `search`, `page`, `pageSize`) or registers if `?username=` supplied |
 | `/api/exception-users` | POST | Public | Registers a username in the persistent ExceptionUser list |
 | `/api/exception-users/:username` | PUT | Public | Updates/renames an existing exception username |
 | `/api/exception-users/:username` | DELETE | Public | Removes a username from the persistent ExceptionUser list |
 | `/api/instagram/search[/:username]` | GET / POST | Public | Fetches public stories & highlights |
+| `/api/instagram/stories[/:username]` | GET / POST | Public | Stories only |
+| `/api/instagram/story[/:username]` | GET / POST | Public | Story alias |
+| `/api/instagram/highlights/:highlightId` | GET | Public | Individual highlight items |
+| `/api/instagram/media?url=...` | GET | Public | Proxies media asset preview (with allowlist validation) |
 | `/api/instagram/download/zip` | POST | Public | Direct zip stream of stories/highlights |
 | `/api/instagram/download/zip/start` | POST | Public | Starts async zip job for SSE streaming |
 | `/api/instagram/download/zip/:jobId/events` | GET | Public | Real-time SSE progress stream for zip packaging |
+| `/api/instagram/download/zip/:jobId/file` | GET | Public | Downloads generated zip archive |
 | `/api/igram[/:username]` | GET / POST | Public | Resolves single media, profile feed, or stories via IGram |
 | `/api/igram/highlights/:highlightId` | GET | Public | Resolves highlight stories via IGram |
 | `/api/anonyig/user[/:username]` | GET / POST | Public | Profile via AnonyIG worker hub |
-| `/api/anonyig/feed[/:username]` | GET / POST | Public | Feed via AnonyIG worker hub |
+| `/api/anonyig/feed[/:username]` | GET / POST | Public | Feed via AnonyIG worker hub (accepts `proxy`, `providers`) |
 | `/api/fastdl[/:username]` | GET / POST | Public | Resolves single media links or feed via FastDL |
 | `/api/graphql[/:username]` | GET / POST | Pool Required | Direct GraphQL query for user timeline |
 
@@ -208,7 +233,9 @@ GetIGFeed/
 - `npm run anonyig:chunk`: Refreshes AnonyIG signing chunk and mirrors to B2.
 - `npm run fastdl:chunk`: Refreshes FastDL signing chunk and mirrors to B2.
 
-## ExceptionUser Routing & Management
+---
+
+## 6. ExceptionUser Routing & Management
 
 The persistent ExceptionUser system ensures high-priority accounts bypass default mode settings and always prioritize the FeedPilot Android Bridge.
 

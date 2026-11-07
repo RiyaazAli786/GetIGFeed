@@ -15,6 +15,7 @@ const { setFeedResolution } = require('../utils/feedResolution');
 const {
   bridgeMode,
   fetchViaFeedPilotBridge,
+  sanitizeBridgeUsername,
 } = require('../services/feedPilotBridge.service');
 const { mapFeedPilotBridgeResponse } = require('../utils/mapFeedPilotBridgeResponse');
 
@@ -185,19 +186,20 @@ async function postUserFeed(req, res, next) {
         .json({ success: false, error: 'userId is required.' });
     }
 
-    const exceptionUser = await exceptionUsers.has(src.username || src.handle || userId);
+    const isNumericId = /^\d+$/.test(String(userId).trim());
+    const rawUsername =
+      src.username ||
+      src.handle ||
+      (!isNumericId ? userId : undefined);
+    const resolvedUsername = sanitizeBridgeUsername(rawUsername);
+    const resolvedUserId = isNumericId
+      ? String(userId).trim()
+      : (src.numericUserId || src.userIdNumeric || undefined);
+
+    const exceptionUser = await exceptionUsers.has(resolvedUsername || userId);
     const feedSourceMode = exceptionUser ? 'bridge_then_pool' : bridgeMode();
     let bridgeResult = null;
     if (feedSourceMode !== 'pool' && !feedMaxId) {
-      const isNumericId = /^\d+$/.test(String(userId).trim());
-      const resolvedUsername =
-        src.username ||
-        src.handle ||
-        (!isNumericId ? String(userId).replace(/^@/, '') : undefined);
-      const resolvedUserId = isNumericId
-        ? String(userId).trim()
-        : (src.numericUserId || src.userIdNumeric || undefined);
-
       bridgeResult = await fetchViaFeedPilotBridge({
         mode: feedSourceMode,
         requestId: req.headers['x-request-id'] || undefined,
