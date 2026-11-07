@@ -508,7 +508,6 @@ async function postUserFeed(req, res, next) {
       result,
     });
 
-    const isNumericId = /^\d+$/.test(String(userId).trim());
     const feedTarget = !isNumericId
       ? `${encodeURIComponent(String(userId).replace(/^@/, ''))}/username`
       : encodeURIComponent(userId);
