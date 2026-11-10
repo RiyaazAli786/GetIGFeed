@@ -63,19 +63,12 @@ function mapFeedPilotBridgeResponse(input, bridgeMeta = {}) {
         },
       },
     },
-    feedpilot_bridge: {
-      source: 'android-device',
-      jobId: bridgeMeta.jobId || null,
-      deviceId: bridgeMeta.deviceId || null,
-      accountUsername: bridgeMeta.accountUsername || null,
-      durationMs: bridgeMeta.durationMs || null,
-    },
   };
 
   response.stories = {
     available: stories.length > 0,
     count: stories.length,
-    source: stories.length > 0 ? 'android-device' : null,
+    source: stories.length > 0 ? 'instagram' : null,
     error: null,
     items: stories.map(mapStoryItem),
   };
@@ -83,7 +76,7 @@ function mapFeedPilotBridgeResponse(input, bridgeMeta = {}) {
   response.highlights = {
     available: highlights.length > 0,
     count: highlights.length,
-    source: highlights.length > 0 ? 'android-device' : null,
+    source: highlights.length > 0 ? 'instagram' : null,
     error: null,
     items: highlights.map((highlight) => ({
       id: highlight.id,
@@ -107,7 +100,7 @@ function mapFeedPilotBridgeResponse(input, bridgeMeta = {}) {
             id: highlight.id,
             title: highlight.title || null,
             coverUrl: highlight.coverUrl || null,
-            source: Array.isArray(highlight.items) && highlight.items.length > 0 ? 'android-device' : null,
+            source: Array.isArray(highlight.items) && highlight.items.length > 0 ? 'instagram' : null,
             count: Array.isArray(highlight.items) ? highlight.items.length : 0,
             items: Array.isArray(highlight.items) ? highlight.items.map(mapStoryItem) : [],
             error: null,

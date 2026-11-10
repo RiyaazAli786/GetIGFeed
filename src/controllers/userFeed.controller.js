@@ -238,26 +238,24 @@ async function postUserFeed(req, res, next) {
             (process.env.FEEDPILOT_BRIDGE_URL
               ? `${process.env.FEEDPILOT_BRIDGE_URL.replace(/\/+$/, '')}/api/bridge/feed`
               : 'feedpilot-bridge');
+          const bridgeAccount =
+            bridgeResult.bridge?.accountUsername ||
+            bridgeResult.bridge?.account ||
+            bridgeResult.bridge?.resolvedAccountUsername ||
+            bridgeResult.data?.accountUsername ||
+            undefined;
           setFeedResolution(res, {
             resolvedFrom: 'FeedPilot Bridge',
             resolvedPath: bridgeEndpoint,
             proxy: 'bridge-device',
             logFile: logFile || undefined,
             details: {
-              device:
-                bridgeResult.bridge?.deviceId ||
-                bridgeResult.bridge?.device ||
-                bridgeResult.bridge?.device_id ||
-                bridgeResult.bridge?.deviceName ||
-                mappedBridgeResult?.feedpilot_bridge?.deviceId ||
-                bridgeResult.data?.deviceId ||
-                'unknown',
-              account:
-                bridgeResult.bridge?.accountUsername ||
-                mappedBridgeResult?.feedpilot_bridge?.accountUsername ||
-                undefined,
+              device: bridgeAccount || 'unknown',
             },
           });
+          if (mappedBridgeResult?.feedpilot_bridge) {
+            delete mappedBridgeResult.feedpilot_bridge;
+          }
           return res.status(200).json(mappedBridgeResult);
         }
       }
