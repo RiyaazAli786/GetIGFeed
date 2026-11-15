@@ -90,10 +90,14 @@ async function getUserFeed(dominatorAccount, userId, opts = {}) {
     // Bearer IGT:2:base64({ds_user_id, sessionid}) built from the session.
     if (param.authorization) headers['Authorization'] = param.authorization;
 
-    const feedTarget = inputHandle
-      ? `${encodeURIComponent(inputHandle)}/username`
-      : encodeURIComponent(inputUser);
-    const endpoint = `/api/v1/feed/user/${feedTarget}/?count=${PAGE_COUNT}${maxParam}`;
+    let feedTarget = /^\d+$/.test(inputUser) ? inputUser : null;
+    if (!feedTarget && inputHandle) {
+      feedTarget = await resolveUsernamePk(inputHandle);
+    }
+    if (!feedTarget) {
+      throw new Error(`Cannot fetch private feed for ${inputUser}: could not resolve numeric user PK`);
+    }
+    const endpoint = `/api/v1/feed/user/${encodeURIComponent(feedTarget)}/?count=${PAGE_COUNT}${maxParam}`;
     const response = await param.client.get(endpoint, { headers });
     const data = response.data || {};
 
@@ -287,19 +291,19 @@ async function fetchUserProfileDetails(client, usernameOrId, headers, initialPro
   }
 
   if (!pk) {
-    const feedUrl =
-      `https://www.instagram.com/api/v1/feed/user/${encodeURIComponent(clean)}/username/?count=${PAGE_COUNT}`;
-    const feedUser = await getProfileFrom(client, feedUrl, headers, (d) => {
-      const user = d?.user || null;
-      if (Array.isArray(d?.items)) {
-        mediaCount = d.items.length;
-        return user || d.items[0]?.user || null;
+    const searchUrl =
+      `https://www.instagram.com/api/v1/fbsearch/topsearch_flat/?query=${encodeURIComponent(clean)}&context=blended`;
+    const searchUser = await getProfileFrom(client, searchUrl, headers, (d) => {
+      const users = d?.users || d?.list || [];
+      for (const item of users) {
+        const u = item?.user || item;
+        if (usernameMatches(u?.username, clean)) return u;
       }
-      return user;
+      return null;
     }, 2500);
-    if (feedUser) {
-      userObj = mergeProfiles(userObj, feedUser);
-      pk = numericPk(feedUser.pk_id, feedUser.pk, feedUser.id);
+    if (searchUser) {
+      userObj = mergeProfiles(userObj, searchUser);
+      pk = numericPk(searchUser.pk_id, searchUser.pk, searchUser.id);
     }
   }
 
