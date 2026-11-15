@@ -1,6 +1,6 @@
 # GetIGFeed — Complete Workspace & Architecture Context
 
-> Living reference for the entire GetIGFeed repository. Last updated on 2026-11-07.
+> Living reference for the entire GetIGFeed repository. Last updated on 2026-11-15.
 > Companion docs: [Master.md](file:///c:/CoreProjects/GetIGFeed/Master.md) (API Reference), [API.md](file:///c:/CoreProjects/GetIGFeed/API.md) (Detailed API Specification), [Run.md](file:///c:/CoreProjects/GetIGFeed/Run.md) (Operational Guide), [DEPLOY.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY.md) (Render Deployment), [DEPLOY_VPS.md](file:///c:/CoreProjects/GetIGFeed/DEPLOY_VPS.md) (VPS & Docker Deployment), [PROJECT_CONTEXT.md](file:///c:/CoreProjects/GetIGFeed/PROJECT_CONTEXT.md) (Project Context).
 
 ---
@@ -148,7 +148,10 @@ GetIGFeed/
   - Rejects post URLs (`/p/...`), reel URLs (`/reel/...`, `/reels/...`), TV URLs (`/tv/...`), story media links, and reserved Instagram routes.
   - Rejects strings containing internal `@` characters (e.g. emails) or pure numeric IDs.
   - Rejects invalid targets prior to dispatching requests to Android automation devices (`INVALID_BRIDGE_TARGET`).
-* Normalizes responses via `mapFeedPilotBridgeResponse.js` into standard `web_profile_info`.
+* **Response Normalization & Schema Parity**:
+  - Normalizes responses via `mapFeedPilotBridgeResponse.js` into standard `web_profile_info`.
+  - Automatically strips internal `feedpilot_bridge` metadata blocks before responding to client requests to ensure clean schema parity.
+  - Labels story and highlight sources as `'instagram'` and records the active bridge account username in telemetry resolution details (`details.device`).
 
 ### 3.2 Session & Proxy Pool Engine (`src/store/poolStore.js`)
 * **Round-Robin Rotation**: Cycles active sessions and proxies.
@@ -225,7 +228,7 @@ GetIGFeed/
 
 ## 5. Execution & Testing
 
-- `npm.cmd test`: Runs built-in test suite (44/44 tests passing).
+- `npm.cmd test`: Runs built-in test suite (46/46 tests passing).
 - `npm.cmd run test:hover-card -- <handle>`: Runs Polaris hover card profile resolution CLI test.
 - `npm.cmd run dev`: Development server with nodemon reload.
 - `npm start`: Production server bootstrap.

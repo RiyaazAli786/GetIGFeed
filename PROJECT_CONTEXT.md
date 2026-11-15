@@ -1,6 +1,6 @@
 # GetIGFeed Project Context
 
-Last built: 2026-11-07
+Last built: 2026-11-15
 
 ## What This Repo Is
 
@@ -9,7 +9,7 @@ Last built: 2026-11-07
 1. **FeedPilot Android Device Bridge (`src/services/feedPilotBridge.service.js`)**:
    - Direct integration with real Android physical devices running Instagram to bypass datacenter/web scraping blocks.
    - Configured via `FEED_SOURCE_MODE` (`bridge_then_pool`, `android_bridge`, `pool`).
-   - Normalizes Android bridge responses into standard `web_profile_info` JSON with `feedpilot_bridge` metadata.
+   - Normalizes Android bridge responses into standard `web_profile_info` JSON. Device metadata is stripped (`delete mappedBridgeResult.feedpilot_bridge`) from API responses to maintain clean schema parity, with the active account username logged in resolution telemetry.
    - Enforces strict profile verification (`IG_PROFILE_MISMATCH`) ensuring the returned account matches the requested username.
    - Strict username sanitization (`sanitizeBridgeUsername`): Strips leading `@`, resolves profile URLs to clean handles, rejects post URLs (`/p/...`), reel URLs (`/reel/...`, `/reels/...`), TV URLs (`/tv/...`), story media links, reserved routes, and strings with internal `@` to prevent sending invalid targets to Android automation devices.
 
@@ -69,7 +69,7 @@ Last built: 2026-11-07
 ## Current Health & Validation
 
 - **Test Suite**: Fully operational via `npm.cmd test`.
-- **Test Results** (44/44 passing):
+- **Test Results** (46/46 passing):
   - FastDL Config, Chunk Sources, VM Sandbox signer, Client methods, converted feed, and Input normalizers.
   - GraphQL Service exports and clean web headers (no mobile Authorization leak).
   - Numeric user ID resolution (`resolveUserId`) fast-path.
@@ -77,6 +77,8 @@ Last built: 2026-11-07
   - Feed resolution formatting (`formatFeedResolutionText`, res.locals tracking, and Telegram message integration).
   - Fallback engine username normalizer, ordered providers (preserving order, rotating workers, and excluding failing sources), and trigger conditions (`shouldFallbackForPrivateResult`, `shouldFallbackForError`).
   - FeedPilot Bridge configuration, strict boolean options, retryable empty/502 handling, and profile mismatch detection.
+  - Bridge username sanitization (`sanitizeBridgeUsername`) handling valid handles, leading `@`, profile URLs, and rejecting posts, reels, stories media, internal `@`, and numeric IDs.
+  - Bridge fetch protection aborting with `INVALID_BRIDGE_TARGET` on invalid handles or post/reel URLs without hitting device automation.
   - Profile resolution count checks (`hasProfileCounts`) and handle match prioritization (`profileFromFeed`).
   - ExceptionUser storage, deduplication, search/filter, pagination, updating, removal, and pool update survival (`src/store/exceptionUserStore.test.js`).
   - Pool store session parsers (Chrome cookie export JSON array, object.cookies, JSON strings).
@@ -176,7 +178,9 @@ The bridge subsystem (`src/services/feedPilotBridge.service.js`) routes requests
 ### Response Adaptation & Safety
 - **Profile Mismatch Guard**: Verifies that the returned account username matches the requested username. If an Android device served another user's feed, it is classified as `IG_PROFILE_MISMATCH` and retried through pool/fallback tiers.
 - **Normalization (`src/utils/mapFeedPilotBridgeResponse.js`)**: Normalizes Android payload into standard Instagram `data.user` (`edge_owner_to_timeline_media`, `edge_followed_by`, `edge_follow`), while adding:
-  - `feedpilot_bridge`: `{ source: 'android-device', jobId, deviceId, accountUsername, durationMs }`
+  - Cleaned story & highlight nodes with `source: 'instagram'`.
+  - Internal device and job metadata (`feedpilot_bridge`) is automatically stripped before sending responses to external consumers, preserving pure `web_profile_info` envelope parity.
+  - Telemetry logs the bridge account username in `details.device` rather than raw internal device hardware IDs.
   - Merged `stories`, `highlights`, and `highlight_details` top-level nodes.
 
 ---
