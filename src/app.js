@@ -28,6 +28,14 @@ app.use(telegramRequestLogger);
 // Health check
 app.use(healthRoutes);
 
+// Favicon
+const faviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><defs><linearGradient id="g" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" stop-color="#fdf497"/><stop offset="5%" stop-color="#fdf497"/><stop offset="45%" stop-color="#fd5949"/><stop offset="60%" stop-color="#d6249f"/><stop offset="90%" stop-color="#285AEB"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#g)"/><rect x="6.5" y="6.5" width="19" height="19" rx="5.5" fill="none" stroke="#ffffff" stroke-width="2.2"/><circle cx="16" cy="16" r="4.2" fill="none" stroke="#ffffff" stroke-width="2.2"/><circle cx="21.8" cy="10.2" r="1.3" fill="#ffffff"/></svg>`;
+app.get(['/favicon.ico', '/favicon.svg'], (req, res) => {
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(faviconSvg);
+});
+
 // Public pages
 app.get('/instagram-view.html', adminController.serveInstagramView);
 

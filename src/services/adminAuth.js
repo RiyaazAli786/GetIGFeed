@@ -47,7 +47,7 @@ function isConfigured() {
 function checkPasscode(input) {
   const expected = getPasscode();
   if (!expected) return false;
-  const a = Buffer.from(String(input == null ? '' : input));
+  const a = Buffer.from(String(input == null ? '' : input).trim());
   const b = Buffer.from(expected);
   // timingSafeEqual requires equal lengths; compare against a padded copy so a
   // length mismatch still costs the same as a value mismatch.
