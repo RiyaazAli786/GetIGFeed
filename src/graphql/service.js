@@ -273,27 +273,75 @@ async function fetchFromGraphQL(username, opts = {}) {
     'https://www.instagram.com/graphql/query/?' +
     `doc_id=${GRAPHQL_DOC_ID}&variables=${encodeURIComponent(JSON.stringify(variables))}`;
 
-  let gqlData;
+  let gqlData = null;
+  let gqlUser = {};
+  let timeline = {};
+  let edges = [];
+  let source = 'graphql';
+
   try {
-    const r = await param.client.get(qUrl, { headers: baseHeaders });
-    if (r.status < 200 || r.status >= 300) {
-      throw new Error(`Instagram GraphQL returned HTTP ${r.status}`);
+    const r = await param.client.get(qUrl, { headers: baseHeaders, timeout: 5000 });
+    if (r.status >= 200 && r.status < 300 && r.data && typeof r.data === 'object') {
+      gqlData = r.data;
+      gqlUser = gqlData?.data?.user || {};
+      timeline = gqlUser.edge_owner_to_timeline_media || {};
+      edges = Array.isArray(timeline.edges) ? timeline.edges : [];
     }
-    gqlData = r.data;
-  } catch (err) {
-    throw Object.assign(
-      new Error(`Instagram GraphQL upstream failure: ${err.message}`),
-      { status: 502 }
-    );
+  } catch (_) {
+    // Upstream doc_id query failed — fall back to getUserFeed below
+  }
+
+  // ── Step 2b: Fall back to pool private API if web GraphQL returned HTML or 0 edges
+  if (!edges.length) {
+    try {
+      const { getUserFeed } = require('../services/instagram.service');
+      const feedRes = await getUserFeed(account, userId, {
+        count: first,
+        maxId: after,
+        includeStories: false,
+      });
+      if (feedRes?.data?.user) {
+        const feedUser = feedRes.data.user;
+        const feedTimeline = feedUser.edge_owner_to_timeline_media || {};
+        const feedEdges = Array.isArray(feedTimeline.edges) ? feedTimeline.edges : [];
+        if (feedEdges.length) {
+          edges = feedEdges;
+          timeline = feedTimeline;
+          gqlUser = feedUser;
+          source = 'pool';
+        }
+      }
+    } catch (_) {}
+  }
+
+  // ── Step 2c: Fall back to FeedPilot Android Bridge if pool returned 0 edges
+  if (!edges.length) {
+    try {
+      const { fetchViaFeedPilotBridge } = require('../services/feedPilotBridge.service');
+      const { mapFeedPilotBridgeResponse } = require('../utils/mapFeedPilotBridgeResponse');
+      const bridgeRes = await fetchViaFeedPilotBridge({
+        username: handle,
+        limit: first,
+        includeStories: false,
+      });
+      if (bridgeRes?.ok && bridgeRes?.data) {
+        const mapped = mapFeedPilotBridgeResponse(bridgeRes.data, bridgeRes.bridge);
+        if (mapped?.data?.user) {
+          gqlUser = mapped.data.user;
+          timeline = gqlUser.edge_owner_to_timeline_media || {};
+          edges = Array.isArray(timeline.edges) ? timeline.edges : [];
+          if (edges.length) {
+            source = 'bridge';
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   // ── Step 3: Normalise the response ───────────────────────────────────────
   // The GraphQL response already mirrors web_profile_info shape:
   //   data.user.edge_owner_to_timeline_media.{ count, page_info, edges }
   // We just wrap it and add metadata.
-  const gqlUser = gqlData?.data?.user || {};
-  const timeline = gqlUser.edge_owner_to_timeline_media || {};
-  const edges = Array.isArray(timeline.edges) ? timeline.edges : [];
   const pageInfo = timeline.page_info || {};
   const userProfile = convertedUserProfile(
     { ...(profileUser || {}), ...(gqlUser || {}) },
@@ -309,11 +357,11 @@ const {
 
   const response = {
     success: true,
-    source: 'graphql',
+    source,
     userId,
     username: handle,
     count: edges.length,
-    totalCount: timeline.count ?? null,
+    totalCount: timeline.count ?? (edges.length || null),
     hasNextPage: Boolean(pageInfo.has_next_page),
     endCursor: pageInfo.end_cursor ?? null,
     data: {

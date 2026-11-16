@@ -8,8 +8,7 @@ module.exports = {
   BASE_URL: 'https://i.instagram.com',
 
   USER_AGENT:
-    'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 ' +
-    '(KHTML, like Gecko) Chrome/150.0.0.0 Mobile Safari/537.36',
+    'Instagram 275.0.0.27.98 (iPhone14,2; iOS 16_3_1; en_US; en-US; scale=3.00; 1170x2532; 454796336)',
 
   ACCEPT_ENCODING: 'gzip, deflate',
 
